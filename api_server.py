@@ -407,6 +407,211 @@ def handle_clockout():
     })
 
 
+@app.route('/slack/adjustin', methods=['POST'])
+def handle_adjustin():
+    """Handle /adjustin slash command to adjust clock-in time."""
+    if not verify_slack_signature(
+        request.get_data(),
+        request.headers.get('X-Slack-Request-Timestamp', ''),
+        request.headers.get('X-Slack-Signature', '')
+    ):
+        return jsonify({'error': 'Invalid signature'}), 403
+
+    user_id = request.form.get('user_id')
+    text = request.form.get('text', '').strip()
+    mac_address = f"REMOTE-{user_id}"
+    employee_name = get_remote_employee(user_id)
+
+    if not employee_name:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': "You're not registered. Use `/clockin YourName` to register first."
+        })
+
+    if not text:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': "Please provide a time. Example: `/adjustin 9:00 AM`"
+        })
+
+    # Parse the time
+    try:
+        # Try different formats
+        for fmt in ['%I:%M %p', '%I:%M%p', '%H:%M']:
+            try:
+                parsed_time = datetime.strptime(text.upper(), fmt).time()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError("Could not parse time")
+
+        # Create datetime for today with that time
+        today = now_local().date()
+        new_time = datetime.combine(today, parsed_time).replace(tzinfo=TIMEZONE)
+    except ValueError:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': f"Couldn't understand '{text}'. Use format like `9:00 AM` or `14:30`"
+        })
+
+    # Find and update the last clock-in for today
+    today_start = now_local().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                UPDATE clock_events
+                SET timestamp = %s
+                WHERE id = (
+                    SELECT id FROM clock_events
+                    WHERE mac_address = %s
+                    AND event_type = 'clock_in'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                )
+            ''', (new_time, mac_address, today_start, today_end))
+
+            if cursor.rowcount == 0:
+                return jsonify({
+                    'response_type': 'ephemeral',
+                    'text': "No clock-in found for today to adjust."
+                })
+
+            conn.commit()
+
+    message = f"🔧 {employee_name} adjusted clock-in to {format_time(new_time)}"
+    send_slack_notification(message)
+
+    return jsonify({
+        'response_type': 'ephemeral',
+        'text': f"Clock-in adjusted to {format_time(new_time)}"
+    })
+
+
+@app.route('/slack/adjustout', methods=['POST'])
+def handle_adjustout():
+    """Handle /adjustout slash command to clock out at a specific time."""
+    if not verify_slack_signature(
+        request.get_data(),
+        request.headers.get('X-Slack-Request-Timestamp', ''),
+        request.headers.get('X-Slack-Signature', '')
+    ):
+        return jsonify({'error': 'Invalid signature'}), 403
+
+    user_id = request.form.get('user_id')
+    text = request.form.get('text', '').strip()
+    mac_address = f"REMOTE-{user_id}"
+    employee_name = get_remote_employee(user_id)
+
+    if not employee_name:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': "You're not registered. Use `/clockin YourName` to register first."
+        })
+
+    if not text:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': "Please provide a time. Example: `/adjustout 5:30 PM`"
+        })
+
+    # Parse the time
+    try:
+        for fmt in ['%I:%M %p', '%I:%M%p', '%H:%M']:
+            try:
+                parsed_time = datetime.strptime(text.upper(), fmt).time()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError("Could not parse time")
+
+        today = now_local().date()
+        adjusted_time = datetime.combine(today, parsed_time).replace(tzinfo=TIMEZONE)
+    except ValueError:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': f"Couldn't understand '{text}'. Use format like `5:30 PM` or `17:30`"
+        })
+
+    # Check if already clocked out today - if so, update it
+    today_start = now_local().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    last_event = get_last_event(mac_address)
+
+    # Get today's clock-in time for duration calculation
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT timestamp FROM clock_events
+                WHERE mac_address = %s AND event_type = 'clock_in'
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ''', (mac_address, today_start, today_end))
+            result = cursor.fetchone()
+
+            if not result:
+                return jsonify({
+                    'response_type': 'ephemeral',
+                    'text': "No clock-in found for today. Clock in first with `/clockin`"
+                })
+
+            clock_in_time = result[0]
+            if clock_in_time.tzinfo is None:
+                clock_in_time = clock_in_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+
+            work_duration = adjusted_time - clock_in_time
+            work_minutes = int(work_duration.total_seconds() / 60)
+
+            if work_minutes < 0:
+                return jsonify({
+                    'response_type': 'ephemeral',
+                    'text': f"Clock-out time ({format_time(adjusted_time)}) is before clock-in time ({format_time(clock_in_time)})"
+                })
+
+            # Check if there's already a clock-out today
+            cursor.execute('''
+                SELECT id FROM clock_events
+                WHERE mac_address = %s AND event_type = 'clock_out'
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ''', (mac_address, today_start, today_end))
+            existing_clockout = cursor.fetchone()
+
+            if existing_clockout:
+                # Update existing clock-out
+                cursor.execute('''
+                    UPDATE clock_events
+                    SET timestamp = %s, work_duration_minutes = %s
+                    WHERE id = %s
+                ''', (adjusted_time, work_minutes, existing_clockout[0]))
+                action = "adjusted"
+            else:
+                # Create new clock-out
+                cursor.execute('''
+                    INSERT INTO clock_events
+                    (mac_address, employee_name, event_type, timestamp, work_duration_minutes, source)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', (mac_address, employee_name, 'clock_out', adjusted_time, work_minutes, 'slack'))
+                action = "recorded"
+
+            conn.commit()
+
+    message = f"🔧 {employee_name} {action} clock-out at {format_time(adjusted_time)} (worked {format_duration(work_minutes)})"
+    send_slack_notification(message)
+
+    return jsonify({
+        'response_type': 'ephemeral',
+        'text': f"Clock-out {action} at {format_time(adjusted_time)}.\nSession: {format_duration(work_minutes)}"
+    })
+
+
 @app.route('/slack/hours', methods=['POST'])
 def handle_hours():
     """Handle /hours slash command."""
