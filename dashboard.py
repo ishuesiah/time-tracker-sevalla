@@ -143,6 +143,34 @@ DASHBOARD_HTML = '''
             margin-top: 5px;
         }
         .employee-name { font-weight: 500; }
+        .audit-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #eee;
+        }
+        .audit-section h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .audit-table {
+            font-size: 13px;
+        }
+        .audit-table th, .audit-table td {
+            padding: 8px 12px;
+        }
+        .action-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .action-adjust_clock_in { background: #fff3e0; color: #e65100; }
+        .action-adjust_clock_out { background: #e3f2fd; color: #1565c0; }
+        .action-late_clock_out { background: #fce4ec; color: #c2185b; }
+        .change-arrow { color: #999; margin: 0 5px; }
     </style>
 </head>
 <body>
@@ -195,6 +223,13 @@ DASHBOARD_HTML = '''
 
             <div id="tableContainer">
                 <div class="loading">Loading...</div>
+            </div>
+
+            <div class="audit-section">
+                <h2>Audit Log (Time Adjustments)</h2>
+                <div id="auditContainer">
+                    <div class="loading">Loading audit log...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -320,9 +355,69 @@ DASHBOARD_HTML = '''
             window.location.href = `/dashboard/download?start=${startDate}&end=${endDate}&employee=${encodeURIComponent(employee)}`;
         }
 
+        async function loadAuditLog() {
+            try {
+                const response = await fetch('/dashboard/audit?limit=50');
+                const data = await response.json();
+                renderAuditLog(data.logs);
+            } catch (error) {
+                document.getElementById('auditContainer').innerHTML = '<div class="loading">Error loading audit log</div>';
+            }
+        }
+
+        function formatAction(action) {
+            const labels = {
+                'adjust_clock_in': 'Adjusted In',
+                'adjust_clock_out': 'Adjusted Out',
+                'late_clock_out': 'Late Out'
+            };
+            return labels[action] || action;
+        }
+
+        function renderAuditLog(logs) {
+            if (!logs || logs.length === 0) {
+                document.getElementById('auditContainer').innerHTML = '<div class="loading">No adjustments recorded</div>';
+                return;
+            }
+
+            let html = `
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Employee</th>
+                            <th>Action</th>
+                            <th>Change</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            logs.forEach(log => {
+                const changeHtml = log.old_value
+                    ? `${log.old_value}<span class="change-arrow">→</span>${log.new_value}`
+                    : log.new_value || '-';
+
+                html += `
+                    <tr>
+                        <td>${log.timestamp}</td>
+                        <td class="employee-name">${log.employee_name}</td>
+                        <td><span class="action-badge action-${log.action}">${formatAction(log.action)}</span></td>
+                        <td>${changeHtml}</td>
+                        <td>${log.details || '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('auditContainer').innerHTML = html;
+        }
+
         // Initialize dates and load data on page load
         initDates();
         loadData();
+        loadAuditLog();
     </script>
 </body>
 </html>
@@ -505,3 +600,42 @@ def dashboard_download():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
+
+
+@dashboard_bp.route('/dashboard/audit')
+def dashboard_audit():
+    """API endpoint for audit log data."""
+    limit = request.args.get('limit', 50, type=int)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT timestamp, employee_name, action, details, old_value, new_value
+                FROM audit_log
+                ORDER BY timestamp DESC
+                LIMIT %s
+            ''', (limit,))
+            results = cursor.fetchall()
+
+    logs = []
+    for row in results:
+        timestamp = row[0]
+        if hasattr(timestamp, 'strftime'):
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            else:
+                timestamp = timestamp.astimezone(TIMEZONE)
+            timestamp_str = timestamp.strftime('%Y-%m-%d %I:%M %p')
+        else:
+            timestamp_str = str(timestamp)
+
+        logs.append({
+            'timestamp': timestamp_str,
+            'employee_name': row[1],
+            'action': row[2],
+            'details': row[3],
+            'old_value': row[4],
+            'new_value': row[5]
+        })
+
+    return jsonify({'logs': logs})
