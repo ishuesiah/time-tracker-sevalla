@@ -249,7 +249,22 @@ def get_dashboard_html(user):
                         <option value="">All Employees</option>
                     </select>
                 </div>
-    ''' if is_admin else f'<input type="hidden" id="employeeFilter" value="">'
+    ''' if is_admin else '<input type="hidden" id="employeeFilter" value="">'
+
+    download_btn_html = '<button class="btn-download" onclick="downloadCSV()">Download CSV</button>' if is_admin else ''
+
+    summary_cards_html = '''
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <div class="number" id="totalEmployees">-</div>
+                    <div class="label">Employees</div>
+                </div>
+                <div class="summary-card">
+                    <div class="number" id="totalHours">-</div>
+                    <div class="label">Total Hours</div>
+                </div>
+            </div>
+    ''' if is_admin else ''
 
     return f'''
 <!DOCTYPE html>
@@ -446,6 +461,34 @@ def get_dashboard_html(user):
             font-size: 11px;
         }}
         .btn-delete:hover {{ background: #d32f2f; }}
+
+        /* View tabs */
+        .view-tabs {{
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }}
+        .tab-btn {{
+            background: #f5f5f5;
+            color: #666;
+            border: 1px solid #ddd;
+            padding: 8px 20px;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+        }}
+        .tab-btn:hover {{ background: #eee; }}
+        .tab-btn.active {{
+            background: #4a7c23;
+            color: white;
+            border-color: #4a7c23;
+        }}
+        .view-container {{ display: none; }}
+        .view-container.active {{ display: block; }}
+        .days-table {{ font-size: 14px; }}
+        .days-table th {{ background: #f0f7e6; }}
+        .day-date {{ font-weight: 500; }}
     </style>
 </head>
 <body>
@@ -480,22 +523,26 @@ def get_dashboard_html(user):
                     </select>
                 </div>
                 <button onclick="loadData()">Apply Filters</button>
-                <button class="btn-download" onclick="downloadCSV()">Download CSV</button>
+                {download_btn_html}
             </div>
 
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <div class="number" id="totalEmployees">-</div>
-                    <div class="label">Employees</div>
-                </div>
-                <div class="summary-card">
-                    <div class="number" id="totalHours">-</div>
-                    <div class="label">Total Hours</div>
+            {summary_cards_html}
+
+            <div class="view-tabs">
+                <button class="tab-btn active" onclick="showView('summary')">Summary</button>
+                <button class="tab-btn" onclick="showView('days')">View Days</button>
+            </div>
+
+            <div id="summaryView" class="view-container active">
+                <div id="tableContainer">
+                    <div class="loading">Loading...</div>
                 </div>
             </div>
 
-            <div id="tableContainer">
-                <div class="loading">Loading...</div>
+            <div id="daysView" class="view-container">
+                <div id="daysContainer">
+                    <div class="loading">Select filters and click Apply to view days</div>
+                </div>
             </div>
 
             {edit_section}
@@ -550,10 +597,14 @@ def get_dashboard_html(user):
                 currentData = data;
                 allEmployees = data.all_employees || [];
                 renderTable(data);
-                updateSummary(data);
                 if (isAdmin) {{
+                    updateSummary(data);
                     updateEmployeeFilter(data.all_employees);
                     updateEditEmployeeSelect(data.all_employees);
+                }}
+                // Reload days view if it's currently active
+                if (document.getElementById('daysView').classList.contains('active')) {{
+                    loadDays();
                 }}
             }} catch (error) {{
                 document.getElementById('tableContainer').innerHTML = '<div class="loading">Error loading data</div>';
@@ -561,8 +612,10 @@ def get_dashboard_html(user):
         }}
 
         function updateSummary(data) {{
-            document.getElementById('totalEmployees').textContent = data.summary.length;
-            document.getElementById('totalHours').textContent = data.total_hours.toFixed(1);
+            const empEl = document.getElementById('totalEmployees');
+            const hoursEl = document.getElementById('totalHours');
+            if (empEl) empEl.textContent = data.summary.length;
+            if (hoursEl) hoursEl.textContent = data.total_hours.toFixed(1);
         }}
 
         function updateEmployeeFilter(employees) {{
@@ -633,6 +686,79 @@ def get_dashboard_html(user):
             `;
 
             document.getElementById('tableContainer').innerHTML = html;
+        }}
+
+        // Tab switching
+        function showView(view) {{
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.view-container').forEach(c => c.classList.remove('active'));
+
+            if (view === 'summary') {{
+                document.querySelector('.tab-btn:first-child').classList.add('active');
+                document.getElementById('summaryView').classList.add('active');
+            }} else {{
+                document.querySelector('.tab-btn:last-child').classList.add('active');
+                document.getElementById('daysView').classList.add('active');
+                loadDays();
+            }}
+        }}
+
+        async function loadDays() {{
+            const employee = document.getElementById('employeeFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            if (!startDate || !endDate) {{
+                document.getElementById('daysContainer').innerHTML = '<div class="loading">Please select date range first</div>';
+                return;
+            }}
+
+            document.getElementById('daysContainer').innerHTML = '<div class="loading">Loading daily breakdown...</div>';
+
+            try {{
+                const response = await fetch(`/dashboard/details?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`);
+                const data = await response.json();
+                renderDays(data.entries);
+            }} catch (error) {{
+                document.getElementById('daysContainer').innerHTML = '<div class="loading">Error loading data</div>';
+            }}
+        }}
+
+        function renderDays(entries) {{
+            if (!entries || entries.length === 0) {{
+                document.getElementById('daysContainer').innerHTML = '<div class="loading">No daily entries found for this period</div>';
+                return;
+            }}
+
+            let html = `
+                <table class="days-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            ${{isAdmin ? '<th>Employee</th>' : ''}}
+                            <th>Clock In</th>
+                            <th>Clock Out</th>
+                            <th>Hours</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            entries.forEach(entry => {{
+                const hours = entry.hours ? entry.hours.toFixed(1) : '-';
+                html += `
+                    <tr>
+                        <td class="day-date">${{entry.date}}</td>
+                        ${{isAdmin ? `<td class="employee-name">${{entry.employee}}</td>` : ''}}
+                        <td>${{entry.clock_in || '-'}}</td>
+                        <td>${{entry.clock_out || '-'}}</td>
+                        <td>${{hours}} hrs</td>
+                    </tr>
+                `;
+            }});
+
+            html += '</tbody></table>';
+            document.getElementById('daysContainer').innerHTML = html;
         }}
 
         // Edit time entry functions
