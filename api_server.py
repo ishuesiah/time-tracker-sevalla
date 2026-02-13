@@ -119,6 +119,23 @@ def init_database():
                 ON clock_events(mac_address)
             ''')
 
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    employee_name TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    old_value TEXT,
+                    new_value TEXT
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp
+                ON audit_log(timestamp)
+            ''')
+
             conn.commit()
     print("Database initialized")
 
@@ -184,6 +201,23 @@ def get_last_clock_in(mac_address: str) -> Optional[datetime]:
             if result:
                 return result[0]
             return None
+
+
+def log_audit(
+    employee_name: str,
+    action: str,
+    details: str = None,
+    old_value: str = None,
+    new_value: str = None
+) -> None:
+    """Log an audit event for admin visibility."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                INSERT INTO audit_log (timestamp, employee_name, action, details, old_value, new_value)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (now_local(), employee_name, action, details, old_value, new_value))
+            conn.commit()
 
 
 # =============================================================================
@@ -465,26 +499,39 @@ def handle_adjustin():
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            # Get the old timestamp first
             cursor.execute('''
-                UPDATE clock_events
-                SET timestamp = %s
-                WHERE id = (
-                    SELECT id FROM clock_events
-                    WHERE mac_address = %s
-                    AND event_type = 'clock_in'
-                    AND timestamp BETWEEN %s AND %s
-                    ORDER BY timestamp DESC
-                    LIMIT 1
-                )
-            ''', (new_time, mac_address, today_start, today_end))
+                SELECT id, timestamp FROM clock_events
+                WHERE mac_address = %s
+                AND event_type = 'clock_in'
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ''', (mac_address, today_start, today_end))
+            result = cursor.fetchone()
 
-            if cursor.rowcount == 0:
+            if not result:
                 return jsonify({
                     'response_type': 'ephemeral',
                     'text': "No clock-in found for today to adjust."
                 })
 
+            event_id, old_time = result
+            if old_time.tzinfo is None:
+                old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+
+            # Update the timestamp
+            cursor.execute('UPDATE clock_events SET timestamp = %s WHERE id = %s', (new_time, event_id))
             conn.commit()
+
+    # Log the adjustment
+    log_audit(
+        employee_name=employee_name,
+        action='adjust_clock_in',
+        details=f"Adjusted clock-in time for {today_start.strftime('%Y-%m-%d')}",
+        old_value=format_time(old_time),
+        new_value=format_time(new_time)
+    )
 
     message = f"🔧 {employee_name} adjusted clock-in to {format_time(new_time)}"
     send_slack_notification(message)
@@ -580,7 +627,7 @@ def handle_adjustout():
 
             # Check if there's already a clock-out today
             cursor.execute('''
-                SELECT id FROM clock_events
+                SELECT id, timestamp FROM clock_events
                 WHERE mac_address = %s AND event_type = 'clock_out'
                 AND timestamp BETWEEN %s AND %s
                 ORDER BY timestamp DESC
@@ -588,7 +635,11 @@ def handle_adjustout():
             ''', (mac_address, today_start, today_end))
             existing_clockout = cursor.fetchone()
 
+            old_time = None
             if existing_clockout:
+                old_time = existing_clockout[1]
+                if old_time.tzinfo is None:
+                    old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
                 # Update existing clock-out
                 cursor.execute('''
                     UPDATE clock_events
@@ -606,6 +657,24 @@ def handle_adjustout():
                 action = "recorded"
 
             conn.commit()
+
+    # Log the adjustment
+    if action == "adjusted":
+        log_audit(
+            employee_name=employee_name,
+            action='adjust_clock_out',
+            details=f"Adjusted clock-out time for {today_start.strftime('%Y-%m-%d')}",
+            old_value=format_time(old_time) if old_time else None,
+            new_value=format_time(adjusted_time)
+        )
+    else:
+        log_audit(
+            employee_name=employee_name,
+            action='late_clock_out',
+            details=f"Recorded late clock-out for {today_start.strftime('%Y-%m-%d')}",
+            old_value=None,
+            new_value=format_time(adjusted_time)
+        )
 
     message = f"🔧 {employee_name} {action} clock-out at {format_time(adjusted_time)} (worked {format_duration(work_minutes)})"
     send_slack_notification(message)
