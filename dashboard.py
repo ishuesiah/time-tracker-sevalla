@@ -75,11 +75,14 @@ DASHBOARD_HTML = '''
             font-weight: 500;
             margin-right: 5px;
         }
-        select, button {
+        select, button, input[type="date"] {
             padding: 10px 15px;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 14px;
+        }
+        input[type="date"] {
+            min-width: 140px;
         }
         button {
             background: #4a7c23;
@@ -154,10 +157,19 @@ DASHBOARD_HTML = '''
                     </select>
                 </div>
                 <div>
-                    <label>Period:</label>
-                    <select id="periodFilter">
+                    <label>From:</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div>
+                    <label>To:</label>
+                    <input type="date" id="endDate">
+                </div>
+                <div>
+                    <label>Quick:</label>
+                    <select id="periodFilter" onchange="applyQuickPeriod()">
+                        <option value="">Custom</option>
                         <option value="1">Past 1 Week</option>
-                        <option value="2">Past 2 Weeks</option>
+                        <option value="2" selected>Past 2 Weeks</option>
                         <option value="3">Past 3 Weeks</option>
                         <option value="4">Past 4 Weeks</option>
                     </select>
@@ -190,14 +202,41 @@ DASHBOARD_HTML = '''
     <script>
         let currentData = [];
 
+        function initDates() {
+            const today = new Date();
+            const twoWeeksAgo = new Date(today);
+            twoWeeksAgo.setDate(today.getDate() - 14);
+
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = twoWeeksAgo.toISOString().split('T')[0];
+        }
+
+        function applyQuickPeriod() {
+            const weeks = document.getElementById('periodFilter').value;
+            if (!weeks) return;
+
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - (weeks * 7));
+
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
+        }
+
         async function loadData() {
             const employee = document.getElementById('employeeFilter').value;
-            const weeks = document.getElementById('periodFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
 
             document.getElementById('tableContainer').innerHTML = '<div class="loading">Loading...</div>';
 
             try {
-                const response = await fetch(`/dashboard/data?weeks=${weeks}&employee=${encodeURIComponent(employee)}`);
+                const response = await fetch(`/dashboard/data?start=${startDate}&end=${endDate}&employee=${encodeURIComponent(employee)}`);
                 const data = await response.json();
                 currentData = data;
                 renderTable(data);
@@ -275,12 +314,14 @@ DASHBOARD_HTML = '''
         }
 
         function downloadCSV() {
-            const weeks = document.getElementById('periodFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
             const employee = document.getElementById('employeeFilter').value;
-            window.location.href = `/dashboard/download?weeks=${weeks}&employee=${encodeURIComponent(employee)}`;
+            window.location.href = `/dashboard/download?start=${startDate}&end=${endDate}&employee=${encodeURIComponent(employee)}`;
         }
 
-        // Load data on page load
+        // Initialize dates and load data on page load
+        initDates();
         loadData();
     </script>
 </body>
@@ -301,13 +342,32 @@ def dashboard():
 @dashboard_bp.route('/dashboard/data')
 def dashboard_data():
     """API endpoint for dashboard data."""
-    weeks = request.args.get('weeks', 1, type=int)
     employee_filter = request.args.get('employee', '').strip()
 
-    # Calculate date range
+    # Get date range from parameters or default to past 2 weeks
+    start_str = request.args.get('start', '')
+    end_str = request.args.get('end', '')
+
     today = now_local().date()
-    end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
-    start_date = datetime.combine(today - timedelta(days=weeks * 7), datetime.min.time()).replace(tzinfo=TIMEZONE)
+
+    if start_str and end_str:
+        try:
+            start_date = datetime.combine(
+                datetime.strptime(start_str, '%Y-%m-%d').date(),
+                datetime.min.time()
+            ).replace(tzinfo=TIMEZONE)
+            end_date = datetime.combine(
+                datetime.strptime(end_str, '%Y-%m-%d').date(),
+                datetime.max.time()
+            ).replace(tzinfo=TIMEZONE)
+        except ValueError:
+            # Fallback to past 2 weeks if invalid dates
+            end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+            start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
+    else:
+        # Default: past 2 weeks
+        end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+        start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -359,8 +419,7 @@ def dashboard_data():
         'all_employees': all_employees,
         'period': {
             'start': start_date.strftime('%Y-%m-%d'),
-            'end': end_date.strftime('%Y-%m-%d'),
-            'weeks': weeks
+            'end': end_date.strftime('%Y-%m-%d')
         }
     })
 
@@ -368,12 +427,30 @@ def dashboard_data():
 @dashboard_bp.route('/dashboard/download')
 def dashboard_download():
     """Download CSV of timesheet data."""
-    weeks = request.args.get('weeks', 1, type=int)
     employee_filter = request.args.get('employee', '').strip()
 
+    # Get date range from parameters or default to past 2 weeks
+    start_str = request.args.get('start', '')
+    end_str = request.args.get('end', '')
+
     today = now_local().date()
-    end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
-    start_date = datetime.combine(today - timedelta(days=weeks * 7), datetime.min.time()).replace(tzinfo=TIMEZONE)
+
+    if start_str and end_str:
+        try:
+            start_date = datetime.combine(
+                datetime.strptime(start_str, '%Y-%m-%d').date(),
+                datetime.min.time()
+            ).replace(tzinfo=TIMEZONE)
+            end_date = datetime.combine(
+                datetime.strptime(end_str, '%Y-%m-%d').date(),
+                datetime.max.time()
+            ).replace(tzinfo=TIMEZONE)
+        except ValueError:
+            end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+            start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
+    else:
+        end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+        start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
