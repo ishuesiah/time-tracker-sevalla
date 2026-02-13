@@ -33,13 +33,26 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session, redirect, url_for
 from functools import wraps
 import requests
 import random
+import secrets
+from authlib.integrations.flask_client import OAuth
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
 _db_initialized = False
+
+# OAuth setup
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=os.environ.get('GOOGLE_CLIENT_ID', ''),
+    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
 
 # Import and register dashboard blueprint
 from dashboard import dashboard_bp
@@ -63,6 +76,10 @@ REPORT_EMAIL_TO = os.environ.get('REPORT_EMAIL_TO', '')
 
 # Timezone configuration (default: Pacific Time for Vancouver)
 TIMEZONE = ZoneInfo(os.environ.get('TIMEZONE', 'America/Vancouver'))
+
+# Google OAuth configuration
+GOOGLE_DOMAIN = os.environ.get('GOOGLE_DOMAIN', 'hemlockandoak.com')
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
 
 # Slack message templates
 SLACK_MESSAGES = {
@@ -334,6 +351,74 @@ def require_api_secret(f):
             return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
+
+
+def get_current_user():
+    """Get the current logged-in user from session."""
+    return session.get('user')
+
+
+def is_admin(email: str) -> bool:
+    """Check if the given email is an admin."""
+    return email.lower() in ADMIN_EMAILS
+
+
+def get_employee_name_from_email(email: str) -> str:
+    """Extract employee name from email for matching clock records."""
+    # Extract the part before @ and replace dots/underscores with spaces
+    name_part = email.split('@')[0]
+    # Convert john.smith or john_smith to "john smith"
+    name = name_part.replace('.', ' ').replace('_', ' ')
+    return name
+
+
+# =============================================================================
+# AUTHENTICATION ROUTES
+# =============================================================================
+
+@app.route('/login')
+def login():
+    """Redirect to Google OAuth login."""
+    # Get the redirect URI dynamically based on the request
+    redirect_uri = request.url_root.rstrip('/') + '/login/callback'
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route('/login/callback')
+def login_callback():
+    """Handle Google OAuth callback."""
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get('userinfo')
+
+        if not user_info:
+            return "Failed to get user info", 400
+
+        email = user_info.get('email', '').lower()
+
+        # Check domain restriction
+        if GOOGLE_DOMAIN and not email.endswith(f'@{GOOGLE_DOMAIN}'):
+            return f"Access denied. Only @{GOOGLE_DOMAIN} emails are allowed.", 403
+
+        # Store user info in session
+        session['user'] = {
+            'email': email,
+            'name': user_info.get('name', email.split('@')[0]),
+            'is_admin': is_admin(email)
+        }
+
+        return redirect('/dashboard')
+
+    except Exception as e:
+        print(f"OAuth error: {e}")
+        return f"Authentication failed: {e}", 400
+
+
+@app.route('/logout')
+def logout():
+    """Log out the current user."""
+    session.pop('user', None)
+    return redirect('/dashboard')
 
 
 # =============================================================================
