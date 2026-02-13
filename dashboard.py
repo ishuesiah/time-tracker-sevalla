@@ -9,7 +9,8 @@ Imported by api_server.py as a Flask Blueprint.
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, session, redirect
+
 import psycopg2
 
 # Create Blueprint
@@ -18,6 +19,7 @@ dashboard_bp = Blueprint('dashboard', __name__)
 # Configuration
 DATABASE_URL = os.environ.get('DATABASE_URL')
 TIMEZONE = ZoneInfo(os.environ.get('TIMEZONE', 'America/Vancouver'))
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
 
 
 def get_db_connection():
@@ -30,11 +32,158 @@ def now_local():
     return datetime.now(TIMEZONE)
 
 
+def get_current_user():
+    """Get current user from session."""
+    return session.get('user')
+
+
+def is_admin_user(user):
+    """Check if user is an admin."""
+    if not user:
+        return False
+    return user.get('is_admin', False)
+
+
+def get_employee_name_from_email(email: str) -> str:
+    """Extract employee name from email for matching."""
+    name_part = email.split('@')[0]
+    return name_part.replace('.', ' ').replace('_', ' ')
+
+
+def format_time(dt):
+    """Format datetime for display."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+    else:
+        dt = dt.astimezone(TIMEZONE)
+    return dt.strftime("%I:%M %p").lstrip('0')
+
+
+def log_audit(employee_name: str, action: str, details: str = None,
+              old_value: str = None, new_value: str = None, adjusted_by: str = None):
+    """Log an audit event."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            full_details = details or ''
+            if adjusted_by:
+                full_details += f" (by {adjusted_by})"
+            cursor.execute('''
+                INSERT INTO audit_log (timestamp, employee_name, action, details, old_value, new_value)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (now_local(), employee_name, action, full_details.strip(), old_value, new_value))
+            conn.commit()
+
+
 # =============================================================================
-# DASHBOARD HTML
+# LOGIN PAGE HTML
 # =============================================================================
 
-DASHBOARD_HTML = '''
+LOGIN_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Tracker - Login</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-card {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+        }
+        h1 {
+            color: #2d5016;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .login-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: #4285f4;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+        .login-btn:hover { background: #3367d6; }
+        .google-icon {
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 2px;
+            padding: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>Time Tracker</h1>
+        <p>Sign in to view your hours</p>
+        <a href="/login" class="login-btn">
+            <svg class="google-icon" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Sign in with Google
+        </a>
+    </div>
+</body>
+</html>
+'''
+
+
+# =============================================================================
+# DASHBOARD HTML (with authentication)
+# =============================================================================
+
+def get_dashboard_html(user):
+    """Generate dashboard HTML based on user role."""
+    is_admin = is_admin_user(user)
+    user_email = user.get('email', '') if user else ''
+    user_name = user.get('name', '') if user else ''
+
+    # Determine employee filter hint for non-admins
+    employee_name_hint = get_employee_name_from_email(user_email) if not is_admin else ''
+
+    audit_section = '''
+            <div class="audit-section" id="auditSection">
+                <h2>Audit Log (Time Adjustments)</h2>
+                <div id="auditContainer">
+                    <div class="loading">Loading audit log...</div>
+                </div>
+            </div>
+    ''' if is_admin else ''
+
+    employee_filter_html = '''
+                <div>
+                    <label>Employee:</label>
+                    <select id="employeeFilter">
+                        <option value="">All Employees</option>
+                    </select>
+                </div>
+    ''' if is_admin else f'<input type="hidden" id="employeeFilter" value="">'
+
+    return f'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -42,148 +191,204 @@ DASHBOARD_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Time Tracker Dashboard</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f5f5f5;
             padding: 20px;
             color: #333;
-        }
-        .container { max-width: 1000px; margin: 0 auto; }
-        h1 {
+        }}
+        .container {{ max-width: 1100px; margin: 0 auto; }}
+        .header {{
             background: linear-gradient(135deg, #2d5016 0%, #4a7c23 100%);
             color: white;
             padding: 20px 30px;
             border-radius: 10px 10px 0 0;
             margin-bottom: 0;
-        }
-        .card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .header h1 {{ margin: 0; }}
+        .user-info {{
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 14px;
+        }}
+        .user-info span {{ opacity: 0.9; }}
+        .logout-btn {{
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 13px;
+        }}
+        .logout-btn:hover {{ background: rgba(255,255,255,0.3); }}
+        .admin-badge {{
+            background: #ffd700;
+            color: #333;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        .card {{
             background: white;
             border-radius: 0 0 10px 10px;
             padding: 20px 30px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-        }
-        .filters {
+        }}
+        .filters {{
             display: flex;
             gap: 15px;
             flex-wrap: wrap;
             margin-bottom: 20px;
             align-items: center;
-        }
-        .filters label {
+        }}
+        .filters label {{
             font-weight: 500;
             margin-right: 5px;
-        }
-        select, button, input[type="date"] {
+        }}
+        select, button, input[type="date"], input[type="time"] {{
             padding: 10px 15px;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 14px;
-        }
-        input[type="date"] {
-            min-width: 140px;
-        }
-        button {
+        }}
+        input[type="date"] {{ min-width: 140px; }}
+        input[type="time"] {{ min-width: 120px; }}
+        button {{
             background: #4a7c23;
             color: white;
             border: none;
             cursor: pointer;
             transition: background 0.2s;
-        }
-        button:hover { background: #2d5016; }
-        .btn-download {
-            background: #2196F3;
-        }
-        .btn-download:hover { background: #1976D2; }
-        table {
+        }}
+        button:hover {{ background: #2d5016; }}
+        .btn-download {{ background: #2196F3; }}
+        .btn-download:hover {{ background: #1976D2; }}
+        .btn-edit {{
+            background: #ff9800;
+            padding: 5px 10px;
+            font-size: 12px;
+        }}
+        .btn-edit:hover {{ background: #f57c00; }}
+        .btn-cancel {{ background: #9e9e9e; }}
+        .btn-cancel:hover {{ background: #757575; }}
+        table {{
             width: 100%;
             border-collapse: collapse;
             margin-top: 20px;
-        }
-        th, td {
+        }}
+        th, td {{
             padding: 12px 15px;
             text-align: left;
             border-bottom: 1px solid #eee;
-        }
-        th {
-            background: #f9f9f9;
-            font-weight: 600;
-        }
-        tr:hover { background: #f5f5f5; }
-        .total-row {
-            background: #e8f5e9 !important;
-            font-weight: 600;
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-        .summary-cards {
+        }}
+        th {{ background: #f9f9f9; font-weight: 600; }}
+        tr:hover {{ background: #f5f5f5; }}
+        .total-row {{ background: #e8f5e9 !important; font-weight: 600; }}
+        .loading {{ text-align: center; padding: 40px; color: #666; }}
+        .summary-cards {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 15px;
             margin-bottom: 20px;
-        }
-        .summary-card {
+        }}
+        .summary-card {{
             background: #f9f9f9;
             padding: 15px;
             border-radius: 8px;
             text-align: center;
-        }
-        .summary-card .number {
-            font-size: 24px;
-            font-weight: 600;
-            color: #4a7c23;
-        }
-        .summary-card .label {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-        .employee-name { font-weight: 500; }
-        .audit-section {
+        }}
+        .summary-card .number {{ font-size: 24px; font-weight: 600; color: #4a7c23; }}
+        .summary-card .label {{ font-size: 12px; color: #666; margin-top: 5px; }}
+        .employee-name {{ font-weight: 500; }}
+        .audit-section {{
             margin-top: 30px;
             padding-top: 20px;
             border-top: 2px solid #eee;
-        }
-        .audit-section h2 {
-            font-size: 18px;
-            margin-bottom: 15px;
-            color: #333;
-        }
-        .audit-table {
-            font-size: 13px;
-        }
-        .audit-table th, .audit-table td {
-            padding: 8px 12px;
-        }
-        .action-badge {
+        }}
+        .audit-section h2 {{ font-size: 18px; margin-bottom: 15px; color: #333; }}
+        .audit-table {{ font-size: 13px; }}
+        .audit-table th, .audit-table td {{ padding: 8px 12px; }}
+        .action-badge {{
             display: inline-block;
             padding: 3px 8px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-        }
-        .action-adjust_clock_in { background: #fff3e0; color: #e65100; }
-        .action-adjust_clock_out { background: #e3f2fd; color: #1565c0; }
-        .action-late_clock_out { background: #fce4ec; color: #c2185b; }
-        .change-arrow { color: #999; margin: 0 5px; }
+        }}
+        .action-adjust_clock_in {{ background: #fff3e0; color: #e65100; }}
+        .action-adjust_clock_out {{ background: #e3f2fd; color: #1565c0; }}
+        .action-late_clock_out {{ background: #fce4ec; color: #c2185b; }}
+        .action-dashboard_adjust {{ background: #e8f5e9; color: #2e7d32; }}
+        .change-arrow {{ color: #999; margin: 0 5px; }}
+
+        /* Modal styles */
+        .modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }}
+        .modal.active {{ display: flex; }}
+        .modal-content {{
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 500px;
+            width: 90%;
+        }}
+        .modal-content h3 {{ margin-bottom: 20px; }}
+        .form-group {{
+            margin-bottom: 15px;
+        }}
+        .form-group label {{
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }}
+        .form-group input, .form-group select {{
+            width: 100%;
+        }}
+        .modal-buttons {{
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }}
+        .detail-table {{
+            font-size: 13px;
+            margin-top: 15px;
+        }}
+        .detail-table td {{
+            padding: 6px 10px;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Time Tracker Dashboard</h1>
+        <div class="header">
+            <h1>Time Tracker Dashboard</h1>
+            <div class="user-info">
+                <span>{user_name}</span>
+                {'<span class="admin-badge">ADMIN</span>' if is_admin else ''}
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
+        </div>
         <div class="card">
             <div class="filters">
-                <div>
-                    <label>Employee:</label>
-                    <select id="employeeFilter">
-                        <option value="">All Employees</option>
-                    </select>
-                </div>
+                {employee_filter_html}
                 <div>
                     <label>From:</label>
                     <input type="date" id="startDate">
@@ -206,7 +411,7 @@ DASHBOARD_HTML = '''
                 <button class="btn-download" onclick="downloadCSV()">Download CSV</button>
             </div>
 
-            <div class="summary-cards" id="summaryCards">
+            <div class="summary-cards">
                 <div class="summary-card">
                     <div class="number" id="totalEmployees">-</div>
                     <div class="label">Employees</div>
@@ -225,87 +430,128 @@ DASHBOARD_HTML = '''
                 <div class="loading">Loading...</div>
             </div>
 
-            <div class="audit-section">
-                <h2>Audit Log (Time Adjustments)</h2>
-                <div id="auditContainer">
-                    <div class="loading">Loading audit log...</div>
-                </div>
+            <h3 style="margin-top: 30px; margin-bottom: 10px;">Daily Details</h3>
+            <div id="detailContainer">
+                <div class="loading">Select filters and click Apply to see daily details</div>
             </div>
+
+            {audit_section}
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal" id="editModal">
+        <div class="modal-content">
+            <h3>Adjust Time Entry</h3>
+            <form id="editForm">
+                <input type="hidden" id="editEventId">
+                <input type="hidden" id="editEmployee">
+                <div class="form-group">
+                    <label>Employee</label>
+                    <input type="text" id="editEmployeeDisplay" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group">
+                    <label>Date</label>
+                    <input type="date" id="editDate" required>
+                </div>
+                <div class="form-group">
+                    <label>Clock In</label>
+                    <input type="time" id="editClockIn" required>
+                </div>
+                <div class="form-group">
+                    <label>Clock Out</label>
+                    <input type="time" id="editClockOut" required>
+                </div>
+                <div class="modal-buttons">
+                    <button type="submit">Save Changes</button>
+                    <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
+        const isAdmin = {'true' if is_admin else 'false'};
+        const userEmployeeName = "{employee_name_hint}";
         let currentData = [];
+        let detailData = [];
 
-        function initDates() {
+        function initDates() {{
             const today = new Date();
             const twoWeeksAgo = new Date(today);
             twoWeeksAgo.setDate(today.getDate() - 14);
-
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
             document.getElementById('startDate').value = twoWeeksAgo.toISOString().split('T')[0];
-        }
+        }}
 
-        function applyQuickPeriod() {
+        function applyQuickPeriod() {{
             const weeks = document.getElementById('periodFilter').value;
             if (!weeks) return;
-
             const today = new Date();
             const startDate = new Date(today);
             startDate.setDate(today.getDate() - (weeks * 7));
-
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
             document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
-        }
+        }}
 
-        async function loadData() {
+        async function loadData() {{
             const employee = document.getElementById('employeeFilter').value;
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
 
-            if (!startDate || !endDate) {
+            if (!startDate || !endDate) {{
                 alert('Please select both start and end dates');
                 return;
-            }
+            }}
 
             document.getElementById('tableContainer').innerHTML = '<div class="loading">Loading...</div>';
+            document.getElementById('detailContainer').innerHTML = '<div class="loading">Loading...</div>';
 
-            try {
-                const response = await fetch(`/dashboard/data?start=${startDate}&end=${endDate}&employee=${encodeURIComponent(employee)}`);
+            try {{
+                const response = await fetch(`/dashboard/data?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`);
                 const data = await response.json();
                 currentData = data;
                 renderTable(data);
                 updateSummary(data);
-                updateEmployeeFilter(data.all_employees);
-            } catch (error) {
-                document.getElementById('tableContainer').innerHTML = '<div class="loading">Error loading data</div>';
-            }
-        }
+                if (isAdmin) {{
+                    updateEmployeeFilter(data.all_employees);
+                }}
 
-        function updateSummary(data) {
+                // Load daily details
+                const detailResponse = await fetch(`/dashboard/details?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`);
+                detailData = await detailResponse.json();
+                renderDetails(detailData);
+            }} catch (error) {{
+                document.getElementById('tableContainer').innerHTML = '<div class="loading">Error loading data</div>';
+                document.getElementById('detailContainer').innerHTML = '<div class="loading">Error loading details</div>';
+            }}
+        }}
+
+        function updateSummary(data) {{
             document.getElementById('totalEmployees').textContent = data.summary.length;
             document.getElementById('totalHours').textContent = data.total_hours.toFixed(1);
             document.getElementById('totalSessions').textContent = data.total_sessions;
-        }
+        }}
 
-        function updateEmployeeFilter(employees) {
+        function updateEmployeeFilter(employees) {{
             const select = document.getElementById('employeeFilter');
+            if (!select || select.type === 'hidden') return;
             const currentValue = select.value;
             select.innerHTML = '<option value="">All Employees</option>';
-            employees.forEach(emp => {
+            employees.forEach(emp => {{
                 const option = document.createElement('option');
                 option.value = emp;
                 option.textContent = emp;
                 if (emp === currentValue) option.selected = true;
                 select.appendChild(option);
-            });
-        }
+            }});
+        }}
 
-        function renderTable(data) {
-            if (data.summary.length === 0) {
+        function renderTable(data) {{
+            if (data.summary.length === 0) {{
                 document.getElementById('tableContainer').innerHTML = '<div class="loading">No data found for this period</div>';
                 return;
-            }
+            }}
 
             let html = `
                 <table>
@@ -321,64 +567,110 @@ DASHBOARD_HTML = '''
                     <tbody>
             `;
 
-            data.summary.forEach(row => {
+            data.summary.forEach(row => {{
                 const avgPerDay = row.days_worked > 0 ? (row.total_hours / row.days_worked).toFixed(1) : '0';
                 html += `
                     <tr>
-                        <td class="employee-name">${row.employee}</td>
-                        <td>${row.total_hours.toFixed(1)} hrs</td>
-                        <td>${row.days_worked}</td>
-                        <td>${row.sessions}</td>
-                        <td>${avgPerDay} hrs</td>
+                        <td class="employee-name">${{row.employee}}</td>
+                        <td>${{row.total_hours.toFixed(1)}} hrs</td>
+                        <td>${{row.days_worked}}</td>
+                        <td>${{row.sessions}}</td>
+                        <td>${{avgPerDay}} hrs</td>
                     </tr>
                 `;
-            });
+            }});
 
             html += `
                     <tr class="total-row">
                         <td>Total</td>
-                        <td>${data.total_hours.toFixed(1)} hrs</td>
+                        <td>${{data.total_hours.toFixed(1)}} hrs</td>
                         <td>-</td>
-                        <td>${data.total_sessions}</td>
+                        <td>${{data.total_sessions}}</td>
                         <td>-</td>
                     </tr>
                 </tbody></table>
             `;
 
             document.getElementById('tableContainer').innerHTML = html;
-        }
+        }}
 
-        function downloadCSV() {
+        function renderDetails(data) {{
+            if (!data.entries || data.entries.length === 0) {{
+                document.getElementById('detailContainer').innerHTML = '<div class="loading">No detailed entries found</div>';
+                return;
+            }}
+
+            let html = `
+                <table class="detail-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Employee</th>
+                            <th>Clock In</th>
+                            <th>Clock Out</th>
+                            <th>Hours</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.entries.forEach(entry => {{
+                html += `
+                    <tr>
+                        <td>${{entry.date}}</td>
+                        <td class="employee-name">${{entry.employee}}</td>
+                        <td>${{entry.clock_in || '-'}}</td>
+                        <td>${{entry.clock_out || '-'}}</td>
+                        <td>${{entry.hours ? entry.hours.toFixed(1) + ' hrs' : '-'}}</td>
+                        <td>
+                            <button class="btn-edit" onclick="openEditModal('${{entry.employee}}', '${{entry.date}}', '${{entry.clock_in_raw || ''}}', '${{entry.clock_out_raw || ''}}', ${{entry.clock_in_id || 'null'}}, ${{entry.clock_out_id || 'null'}})">Edit</button>
+                        </td>
+                    </tr>
+                `;
+            }});
+
+            html += '</tbody></table>';
+            document.getElementById('detailContainer').innerHTML = html;
+        }}
+
+        function downloadCSV() {{
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const employee = document.getElementById('employeeFilter').value;
-            window.location.href = `/dashboard/download?start=${startDate}&end=${endDate}&employee=${encodeURIComponent(employee)}`;
-        }
+            window.location.href = `/dashboard/download?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`;
+        }}
 
-        async function loadAuditLog() {
-            try {
+        async function loadAuditLog() {{
+            if (!isAdmin) return;
+            try {{
                 const response = await fetch('/dashboard/audit?limit=50');
                 const data = await response.json();
                 renderAuditLog(data.logs);
-            } catch (error) {
-                document.getElementById('auditContainer').innerHTML = '<div class="loading">Error loading audit log</div>';
-            }
-        }
+            }} catch (error) {{
+                const container = document.getElementById('auditContainer');
+                if (container) container.innerHTML = '<div class="loading">Error loading audit log</div>';
+            }}
+        }}
 
-        function formatAction(action) {
-            const labels = {
+        function formatAction(action) {{
+            const labels = {{
                 'adjust_clock_in': 'Adjusted In',
                 'adjust_clock_out': 'Adjusted Out',
-                'late_clock_out': 'Late Out'
-            };
+                'late_clock_out': 'Late Out',
+                'dashboard_adjust': 'Dashboard Edit'
+            }};
             return labels[action] || action;
-        }
+        }}
 
-        function renderAuditLog(logs) {
-            if (!logs || logs.length === 0) {
-                document.getElementById('auditContainer').innerHTML = '<div class="loading">No adjustments recorded</div>';
+        function renderAuditLog(logs) {{
+            const container = document.getElementById('auditContainer');
+            if (!container) return;
+
+            if (!logs || logs.length === 0) {{
+                container.innerHTML = '<div class="loading">No adjustments recorded</div>';
                 return;
-            }
+            }}
 
             let html = `
                 <table class="audit-table">
@@ -394,30 +686,76 @@ DASHBOARD_HTML = '''
                     <tbody>
             `;
 
-            logs.forEach(log => {
+            logs.forEach(log => {{
                 const changeHtml = log.old_value
-                    ? `${log.old_value}<span class="change-arrow">→</span>${log.new_value}`
+                    ? `${{log.old_value}}<span class="change-arrow">-></span>${{log.new_value}}`
                     : log.new_value || '-';
 
                 html += `
                     <tr>
-                        <td>${log.timestamp}</td>
-                        <td class="employee-name">${log.employee_name}</td>
-                        <td><span class="action-badge action-${log.action}">${formatAction(log.action)}</span></td>
-                        <td>${changeHtml}</td>
-                        <td>${log.details || '-'}</td>
+                        <td>${{log.timestamp}}</td>
+                        <td class="employee-name">${{log.employee_name}}</td>
+                        <td><span class="action-badge action-${{log.action}}">${{formatAction(log.action)}}</span></td>
+                        <td>${{changeHtml}}</td>
+                        <td>${{log.details || '-'}}</td>
                     </tr>
                 `;
-            });
+            }});
 
             html += '</tbody></table>';
-            document.getElementById('auditContainer').innerHTML = html;
-        }
+            container.innerHTML = html;
+        }}
 
-        // Initialize dates and load data on page load
+        // Modal functions
+        function openEditModal(employee, date, clockIn, clockOut, clockInId, clockOutId) {{
+            document.getElementById('editEmployee').value = employee;
+            document.getElementById('editEmployeeDisplay').value = employee;
+            document.getElementById('editDate').value = date;
+            document.getElementById('editClockIn').value = clockIn || '';
+            document.getElementById('editClockOut').value = clockOut || '';
+            document.getElementById('editModal').classList.add('active');
+        }}
+
+        function closeModal() {{
+            document.getElementById('editModal').classList.remove('active');
+        }}
+
+        document.getElementById('editForm').addEventListener('submit', async function(e) {{
+            e.preventDefault();
+
+            const data = {{
+                employee: document.getElementById('editEmployee').value,
+                date: document.getElementById('editDate').value,
+                clock_in: document.getElementById('editClockIn').value,
+                clock_out: document.getElementById('editClockOut').value
+            }};
+
+            try {{
+                const response = await fetch('/dashboard/adjust', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(data)
+                }});
+
+                const result = await response.json();
+
+                if (response.ok) {{
+                    closeModal();
+                    loadData();
+                    if (isAdmin) loadAuditLog();
+                    alert('Time entry updated successfully');
+                }} else {{
+                    alert('Error: ' + (result.error || 'Failed to update'));
+                }}
+            }} catch (error) {{
+                alert('Error updating time entry');
+            }}
+        }});
+
+        // Initialize
         initDates();
         loadData();
-        loadAuditLog();
+        if (isAdmin) loadAuditLog();
     </script>
 </body>
 </html>
@@ -431,18 +769,29 @@ DASHBOARD_HTML = '''
 @dashboard_bp.route('/dashboard')
 def dashboard():
     """Serve the web dashboard."""
-    return DASHBOARD_HTML
+    user = get_current_user()
+    if not user:
+        return LOGIN_HTML
+    return get_dashboard_html(user)
 
 
 @dashboard_bp.route('/dashboard/data')
 def dashboard_data():
     """API endpoint for dashboard data."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
     employee_filter = request.args.get('employee', '').strip()
 
-    # Get date range from parameters or default to past 2 weeks
+    # Non-admins can only see their own data
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        employee_filter = user_employee_name
+
     start_str = request.args.get('start', '')
     end_str = request.args.get('end', '')
-
     today = now_local().date()
 
     if start_str and end_str:
@@ -456,21 +805,17 @@ def dashboard_data():
                 datetime.max.time()
             ).replace(tzinfo=TIMEZONE)
         except ValueError:
-            # Fallback to past 2 weeks if invalid dates
             end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
             start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
     else:
-        # Default: past 2 weeks
         end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
         start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            # Get all employees for filter dropdown
             cursor.execute('SELECT DISTINCT employee_name FROM clock_events ORDER BY employee_name')
             all_employees = [row[0] for row in cursor.fetchall()]
 
-            # Get summary data
             query = '''
                 SELECT
                     employee_name,
@@ -484,11 +829,15 @@ def dashboard_data():
             params = [start_date, end_date]
 
             if employee_filter:
-                query += ' AND employee_name = %s'
-                params.append(employee_filter)
+                # Case-insensitive match for non-admin users
+                if not is_admin:
+                    query += ' AND LOWER(employee_name) LIKE LOWER(%s)'
+                    params.append(f'%{employee_filter}%')
+                else:
+                    query += ' AND employee_name = %s'
+                    params.append(employee_filter)
 
             query += ' GROUP BY employee_name ORDER BY employee_name'
-
             cursor.execute(query, params)
             results = cursor.fetchall()
 
@@ -511,7 +860,7 @@ def dashboard_data():
         'summary': summary,
         'total_hours': round(total_hours, 2),
         'total_sessions': total_sessions,
-        'all_employees': all_employees,
+        'all_employees': all_employees if is_admin else [],
         'period': {
             'start': start_date.strftime('%Y-%m-%d'),
             'end': end_date.strftime('%Y-%m-%d')
@@ -519,15 +868,281 @@ def dashboard_data():
     })
 
 
+@dashboard_bp.route('/dashboard/details')
+def dashboard_details():
+    """API endpoint for detailed daily entries with edit capability."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
+    employee_filter = request.args.get('employee', '').strip()
+
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        employee_filter = user_employee_name
+
+    start_str = request.args.get('start', '')
+    end_str = request.args.get('end', '')
+    today = now_local().date()
+
+    if start_str and end_str:
+        try:
+            start_date = datetime.combine(
+                datetime.strptime(start_str, '%Y-%m-%d').date(),
+                datetime.min.time()
+            ).replace(tzinfo=TIMEZONE)
+            end_date = datetime.combine(
+                datetime.strptime(end_str, '%Y-%m-%d').date(),
+                datetime.max.time()
+            ).replace(tzinfo=TIMEZONE)
+        except ValueError:
+            end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+            start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
+    else:
+        end_date = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+        start_date = datetime.combine(today - timedelta(days=14), datetime.min.time()).replace(tzinfo=TIMEZONE)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            query = '''
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                FROM clock_events
+                WHERE timestamp BETWEEN %s AND %s
+            '''
+            params = [start_date, end_date]
+
+            if employee_filter:
+                if not is_admin:
+                    query += ' AND LOWER(employee_name) LIKE LOWER(%s)'
+                    params.append(f'%{employee_filter}%')
+                else:
+                    query += ' AND employee_name = %s'
+                    params.append(employee_filter)
+
+            query += ' ORDER BY employee_name, timestamp'
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+
+    # Group events by employee and date
+    entries = {}
+    for row in results:
+        event_id, employee, event_type, timestamp, duration = row
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+        else:
+            timestamp = timestamp.astimezone(TIMEZONE)
+
+        date_str = timestamp.strftime('%Y-%m-%d')
+        key = f"{employee}_{date_str}"
+
+        if key not in entries:
+            entries[key] = {
+                'employee': employee,
+                'date': date_str,
+                'clock_in': None,
+                'clock_out': None,
+                'clock_in_raw': None,
+                'clock_out_raw': None,
+                'clock_in_id': None,
+                'clock_out_id': None,
+                'hours': None
+            }
+
+        if event_type == 'clock_in':
+            entries[key]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            entries[key]['clock_in_raw'] = timestamp.strftime('%H:%M')
+            entries[key]['clock_in_id'] = event_id
+        elif event_type == 'clock_out':
+            entries[key]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            entries[key]['clock_out_raw'] = timestamp.strftime('%H:%M')
+            entries[key]['clock_out_id'] = event_id
+            if duration:
+                entries[key]['hours'] = duration / 60
+
+    return jsonify({
+        'entries': sorted(entries.values(), key=lambda x: (x['date'], x['employee']), reverse=True)
+    })
+
+
+@dashboard_bp.route('/dashboard/adjust', methods=['POST'])
+def dashboard_adjust():
+    """API endpoint to adjust time entries from dashboard."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    employee = data.get('employee', '').strip()
+    date_str = data.get('date', '').strip()
+    clock_in_str = data.get('clock_in', '').strip()
+    clock_out_str = data.get('clock_out', '').strip()
+
+    if not employee or not date_str:
+        return jsonify({'error': 'Employee and date are required'}), 400
+
+    # Non-admins can only adjust their own entries
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        if user_employee_name.lower() not in employee.lower():
+            return jsonify({'error': 'You can only adjust your own time entries'}), 403
+
+    try:
+        entry_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    day_start = datetime.combine(entry_date, datetime.min.time()).replace(tzinfo=TIMEZONE)
+    day_end = datetime.combine(entry_date, datetime.max.time()).replace(tzinfo=TIMEZONE)
+
+    adjusted_by = user['email']
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            # Handle clock-in adjustment
+            if clock_in_str:
+                try:
+                    clock_in_time = datetime.strptime(clock_in_str, '%H:%M').time()
+                    new_clock_in = datetime.combine(entry_date, clock_in_time).replace(tzinfo=TIMEZONE)
+                except ValueError:
+                    return jsonify({'error': 'Invalid clock-in time format'}), 400
+
+                # Find existing clock-in
+                cursor.execute('''
+                    SELECT id, timestamp FROM clock_events
+                    WHERE employee_name = %s AND event_type = 'clock_in'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (employee, day_start, day_end))
+                existing = cursor.fetchone()
+
+                if existing:
+                    old_time = existing[1]
+                    if old_time.tzinfo is None:
+                        old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+
+                    cursor.execute('UPDATE clock_events SET timestamp = %s WHERE id = %s',
+                                   (new_clock_in, existing[0]))
+
+                    log_audit(
+                        employee_name=employee,
+                        action='dashboard_adjust',
+                        details=f"Adjusted clock-in for {date_str}",
+                        old_value=format_time(old_time),
+                        new_value=format_time(new_clock_in),
+                        adjusted_by=adjusted_by
+                    )
+                else:
+                    # Create new clock-in
+                    cursor.execute('''
+                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, source)
+                        VALUES (%s, %s, %s, %s, %s)
+                    ''', (f'DASHBOARD-{employee}', employee, 'clock_in', new_clock_in, 'dashboard'))
+
+                    log_audit(
+                        employee_name=employee,
+                        action='dashboard_adjust',
+                        details=f"Added clock-in for {date_str}",
+                        old_value=None,
+                        new_value=format_time(new_clock_in),
+                        adjusted_by=adjusted_by
+                    )
+
+            # Handle clock-out adjustment
+            if clock_out_str:
+                try:
+                    clock_out_time = datetime.strptime(clock_out_str, '%H:%M').time()
+                    new_clock_out = datetime.combine(entry_date, clock_out_time).replace(tzinfo=TIMEZONE)
+                except ValueError:
+                    return jsonify({'error': 'Invalid clock-out time format'}), 400
+
+                # Calculate work duration if we have clock-in
+                work_minutes = None
+                cursor.execute('''
+                    SELECT timestamp FROM clock_events
+                    WHERE employee_name = %s AND event_type = 'clock_in'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (employee, day_start, day_end))
+                clock_in_result = cursor.fetchone()
+
+                if clock_in_result:
+                    clock_in_ts = clock_in_result[0]
+                    if clock_in_ts.tzinfo is None:
+                        clock_in_ts = clock_in_ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+                    work_minutes = int((new_clock_out - clock_in_ts).total_seconds() / 60)
+                    if work_minutes < 0:
+                        return jsonify({'error': 'Clock-out cannot be before clock-in'}), 400
+
+                # Find existing clock-out
+                cursor.execute('''
+                    SELECT id, timestamp FROM clock_events
+                    WHERE employee_name = %s AND event_type = 'clock_out'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (employee, day_start, day_end))
+                existing = cursor.fetchone()
+
+                if existing:
+                    old_time = existing[1]
+                    if old_time.tzinfo is None:
+                        old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+
+                    cursor.execute('''
+                        UPDATE clock_events SET timestamp = %s, work_duration_minutes = %s WHERE id = %s
+                    ''', (new_clock_out, work_minutes, existing[0]))
+
+                    log_audit(
+                        employee_name=employee,
+                        action='dashboard_adjust',
+                        details=f"Adjusted clock-out for {date_str}",
+                        old_value=format_time(old_time),
+                        new_value=format_time(new_clock_out),
+                        adjusted_by=adjusted_by
+                    )
+                else:
+                    # Create new clock-out
+                    cursor.execute('''
+                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, work_duration_minutes, source)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    ''', (f'DASHBOARD-{employee}', employee, 'clock_out', new_clock_out, work_minutes, 'dashboard'))
+
+                    log_audit(
+                        employee_name=employee,
+                        action='dashboard_adjust',
+                        details=f"Added clock-out for {date_str}",
+                        old_value=None,
+                        new_value=format_time(new_clock_out),
+                        adjusted_by=adjusted_by
+                    )
+
+            conn.commit()
+
+    return jsonify({'status': 'ok', 'message': 'Time entry updated'})
+
+
 @dashboard_bp.route('/dashboard/download')
 def dashboard_download():
     """Download CSV of timesheet data."""
+    user = get_current_user()
+    if not user:
+        return redirect('/dashboard')
+
+    is_admin = is_admin_user(user)
     employee_filter = request.args.get('employee', '').strip()
 
-    # Get date range from parameters or default to past 2 weeks
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        employee_filter = user_employee_name
+
     start_str = request.args.get('start', '')
     end_str = request.args.get('end', '')
-
     today = now_local().date()
 
     if start_str and end_str:
@@ -561,15 +1176,17 @@ def dashboard_download():
             params = [start_date, end_date]
 
             if employee_filter:
-                query += ' AND employee_name = %s'
-                params.append(employee_filter)
+                if not is_admin:
+                    query += ' AND LOWER(employee_name) LIKE LOWER(%s)'
+                    params.append(f'%{employee_filter}%')
+                else:
+                    query += ' AND employee_name = %s'
+                    params.append(employee_filter)
 
             query += ' GROUP BY employee_name, DATE(timestamp) ORDER BY employee_name, work_date'
-
             cursor.execute(query, params)
             results = cursor.fetchall()
 
-    # Build CSV
     lines = ['Employee,Date,Minutes,Hours']
     employee_totals = {}
 
@@ -584,7 +1201,6 @@ def dashboard_download():
             employee_totals[employee] = 0
         employee_totals[employee] += minutes
 
-    # Add totals
     lines.append('')
     lines.append('TOTALS')
     for employee, minutes in sorted(employee_totals.items()):
@@ -592,7 +1208,6 @@ def dashboard_download():
         lines.append(f'{employee},TOTAL,{minutes},{hours}')
 
     csv_content = '\n'.join(lines)
-
     filename = f"timesheet_{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}.csv"
 
     return Response(
@@ -604,7 +1219,14 @@ def dashboard_download():
 
 @dashboard_bp.route('/dashboard/audit')
 def dashboard_audit():
-    """API endpoint for audit log data."""
+    """API endpoint for audit log data (admin only)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    if not is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
     limit = request.args.get('limit', 50, type=int)
 
     with get_db_connection() as conn:
