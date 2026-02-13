@@ -23,10 +23,15 @@ import json
 import hmac
 import time
 import hashlib
+import smtplib
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple, List
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from flask import Flask, request, jsonify
 from functools import wraps
 import requests
@@ -42,6 +47,13 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 SLACK_SIGNING_SECRET = os.environ.get('SLACK_SIGNING_SECRET', '')
 SLACK_WEBHOOK_URL = os.environ.get('SLACK_WEBHOOK_URL', '')
 API_SECRET = os.environ.get('API_SECRET', '')  # For laptop authentication
+
+# Email configuration for reports
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+REPORT_EMAIL_TO = os.environ.get('REPORT_EMAIL_TO', '')
 
 # Slack message templates
 SLACK_MESSAGES = {
@@ -548,6 +560,302 @@ def api_summary():
 
 
 # =============================================================================
+# EMAIL REPORT FUNCTIONS
+# =============================================================================
+
+def get_weekly_summary(end_date: Optional[datetime] = None, weeks: int = 1) -> Tuple[datetime, datetime, Dict]:
+    """Generate a summary of employee hours for the specified number of weeks."""
+    if end_date is None:
+        today = datetime.now().date()
+        days_since_sunday = (today.weekday() + 1) % 7
+        if days_since_sunday == 0:
+            days_since_sunday = 7
+        end_date = datetime.combine(
+            today - timedelta(days=days_since_sunday),
+            datetime.max.time()
+        )
+
+    start_date = datetime.combine(
+        end_date.date() - timedelta(days=(7 * weeks) - 1),
+        datetime.min.time()
+    )
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT employee_name, event_type, timestamp, work_duration_minutes
+                FROM clock_events
+                WHERE timestamp BETWEEN %s AND %s
+                ORDER BY employee_name, timestamp
+            ''', (start_date, end_date))
+            events = cursor.fetchall()
+
+    employee_data: Dict[str, Dict] = {}
+
+    for name, event_type, timestamp, duration in events:
+        if name not in employee_data:
+            employee_data[name] = {
+                'total_minutes': 0,
+                'days_worked': set(),
+                'sessions': []
+            }
+
+        if event_type == 'clock_out' and duration:
+            employee_data[name]['total_minutes'] += duration
+            dt = timestamp if isinstance(timestamp, datetime) else datetime.fromisoformat(str(timestamp))
+            employee_data[name]['days_worked'].add(dt.date())
+            employee_data[name]['sessions'].append({
+                'date': dt.date(),
+                'duration_minutes': duration
+            })
+
+    for name in employee_data:
+        employee_data[name]['days_worked'] = len(employee_data[name]['days_worked'])
+
+    return start_date, end_date, employee_data
+
+
+def generate_report_email(start_date: datetime, end_date: datetime, employee_data: Dict, weeks: int = 1) -> Tuple[str, str]:
+    """Generate plain text and HTML versions of the report email."""
+    report_type = "BIWEEKLY" if weeks == 2 else "WEEKLY"
+    report_type_title = "Biweekly" if weeks == 2 else "Weekly"
+    date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+    grand_total_minutes = sum(data['total_minutes'] for data in employee_data.values())
+    grand_total_hours = grand_total_minutes / 60
+
+    plain_lines = [
+        f"{report_type} TIME REPORT: {date_range}",
+        "=" * 50,
+        "",
+        "HOURS BY EMPLOYEE:",
+        "-" * 30,
+    ]
+
+    for name in sorted(employee_data.keys()):
+        data = employee_data[name]
+        hours = data['total_minutes'] / 60
+        days = data['days_worked']
+        plain_lines.append(f"  {name}: {hours:.1f} hours ({days} days)")
+
+    plain_lines.extend([
+        "",
+        "-" * 30,
+        f"TOTAL: {grand_total_hours:.1f} hours",
+        "",
+        "---",
+        "Time Tracker"
+    ])
+
+    plain_text = "\n".join(plain_lines)
+
+    html_rows = ""
+    for name in sorted(employee_data.keys()):
+        data = employee_data[name]
+        hours = data['total_minutes'] / 60
+        days = data['days_worked']
+        html_rows += f"""
+        <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #eee;">{name}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">{hours:.1f} hrs</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">{days}</td>
+        </tr>"""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #2d5016 0%, #4a7c23 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0;">
+            <h1 style="margin: 0; font-size: 24px;">{report_type_title} Time Report</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">{date_range}</p>
+        </div>
+
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+            <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <thead>
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 12px; text-align: left; font-weight: 600;">Employee</th>
+                        <th style="padding: 12px; text-align: right; font-weight: 600;">Hours</th>
+                        <th style="padding: 12px; text-align: center; font-weight: 600;">Days</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {html_rows}
+                    <tr style="background: #f0f7e6; font-weight: 600;">
+                        <td style="padding: 12px;">Total</td>
+                        <td style="padding: 12px; text-align: right;">{grand_total_hours:.1f} hrs</td>
+                        <td style="padding: 12px; text-align: center;">-</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p style="color: #666; font-size: 12px; margin-top: 30px; text-align: center;">
+                Time Tracker<br>
+                Automated {report_type_title.lower()} report
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+    return plain_text, html_content
+
+
+def generate_csv(employee_data: Dict, weeks: int = 1) -> str:
+    """Generate CSV content with daily breakdown per employee."""
+    lines = ["Employee,Date,Total Min,Total Hours"]
+
+    for name in sorted(employee_data.keys()):
+        data = employee_data[name]
+        daily_minutes: Dict[str, int] = {}
+        for session in data.get('sessions', []):
+            date_str = session['date'].strftime('%Y-%m-%d')
+            daily_minutes[date_str] = daily_minutes.get(date_str, 0) + session['duration_minutes']
+
+        for date_str in sorted(daily_minutes.keys()):
+            minutes = daily_minutes[date_str]
+            hours = round(minutes / 60, 2)
+            lines.append(f"{name},{date_str},{minutes},{hours}")
+
+        total_minutes = data['total_minutes']
+        total_hours = round(total_minutes / 60, 2)
+        period_label = f"TOTAL (last {weeks * 7} days)"
+        lines.append(f"{name},{period_label},{total_minutes},{total_hours}")
+
+    return "\n".join(lines)
+
+
+def send_email_report(to_email: str, subject: str, plain_text: str, html_content: str, csv_attachment: Optional[Tuple[str, str]] = None) -> bool:
+    """Send an email using SMTP."""
+    if not SMTP_USER or not SMTP_PASSWORD:
+        print("Email not configured - SMTP_USER and SMTP_PASSWORD required")
+        return False
+
+    try:
+        msg = MIMEMultipart('mixed')
+        msg['Subject'] = subject
+        msg['From'] = SMTP_USER
+        msg['To'] = to_email
+
+        body_part = MIMEMultipart('alternative')
+        body_part.attach(MIMEText(plain_text, 'plain'))
+        body_part.attach(MIMEText(html_content, 'html'))
+        msg.attach(body_part)
+
+        if csv_attachment:
+            filename, csv_content = csv_attachment
+            attachment = MIMEBase('text', 'csv')
+            attachment.set_payload(csv_content.encode('utf-8'))
+            encoders.encode_base64(attachment)
+            attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+            msg.attach(attachment)
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+
+        print(f"Email sent successfully to {to_email}")
+        return True
+
+    except smtplib.SMTPAuthenticationError:
+        print(f"SMTP authentication failed for {SMTP_USER}")
+        return False
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+        return False
+
+
+def send_weekly_report(to_email: str = None, weeks: int = 1) -> bool:
+    """Generate and send the time report email."""
+    if not to_email:
+        to_email = REPORT_EMAIL_TO
+    if not to_email:
+        print("No recipient email configured")
+        return False
+
+    report_type = "Biweekly" if weeks == 2 else "Weekly"
+    print(f"Generating {report_type.lower()} report for {to_email}...")
+
+    start_date, end_date, employee_data = get_weekly_summary(weeks=weeks)
+
+    if not employee_data:
+        print(f"No time data found for the past {weeks} week(s)")
+
+    plain_text, html_content = generate_report_email(start_date, end_date, employee_data, weeks=weeks)
+
+    csv_content = generate_csv(employee_data, weeks=weeks)
+    date_range_file = f"{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}"
+    csv_filename = f"timesheet_{date_range_file}.csv"
+    csv_attachment = (csv_filename, csv_content)
+
+    date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}"
+    subject = f"{report_type} Time Report: {date_range}"
+
+    return send_email_report(to_email, subject, plain_text, html_content, csv_attachment=csv_attachment)
+
+
+@app.route('/api/send-report', methods=['POST'])
+@require_api_secret
+def api_send_report():
+    """
+    Trigger sending an email report.
+
+    Query params or JSON body:
+    - weeks: 1 for weekly, 2 for biweekly (default: 1)
+    - to: email address (optional, uses REPORT_EMAIL_TO if not provided)
+    """
+    data = request.get_json() or {}
+    weeks = data.get('weeks', request.args.get('weeks', 1, type=int))
+    to_email = data.get('to', request.args.get('to', REPORT_EMAIL_TO))
+
+    if not to_email:
+        return jsonify({'error': 'No recipient email provided'}), 400
+
+    success = send_weekly_report(to_email=to_email, weeks=weeks)
+
+    if success:
+        return jsonify({'status': 'ok', 'message': f'Report sent to {to_email}'})
+    else:
+        return jsonify({'error': 'Failed to send report'}), 500
+
+
+@app.route('/api/report-preview', methods=['GET'])
+@require_api_secret
+def api_report_preview():
+    """
+    Preview report data without sending email.
+
+    Query params:
+    - weeks: 1 for weekly, 2 for biweekly (default: 1)
+    """
+    weeks = request.args.get('weeks', 1, type=int)
+
+    start_date, end_date, employee_data = get_weekly_summary(weeks=weeks)
+
+    summary = []
+    for name in sorted(employee_data.keys()):
+        data = employee_data[name]
+        summary.append({
+            'employee': name,
+            'total_hours': round(data['total_minutes'] / 60, 2),
+            'days_worked': data['days_worked']
+        })
+
+    return jsonify({
+        'period': {
+            'start': start_date.strftime('%Y-%m-%d'),
+            'end': end_date.strftime('%Y-%m-%d'),
+            'weeks': weeks
+        },
+        'summary': summary,
+        'total_hours': round(sum(data['total_minutes'] for data in employee_data.values()) / 60, 2)
+    })
+
+
+# =============================================================================
 # HEALTH CHECK
 # =============================================================================
 
@@ -581,6 +889,8 @@ def index():
             '/api/clock-event': 'POST - Push clock event from laptop',
             '/api/timesheet': 'GET - Get timesheet data',
             '/api/summary': 'GET - Get hours summary',
+            '/api/send-report': 'POST - Send email report',
+            '/api/report-preview': 'GET - Preview report data',
             '/health': 'GET - Health check'
         }
     })
