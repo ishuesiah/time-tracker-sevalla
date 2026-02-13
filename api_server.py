@@ -41,6 +41,10 @@ import random
 app = Flask(__name__)
 _db_initialized = False
 
+# Import and register dashboard blueprint
+from dashboard import dashboard_bp
+app.register_blueprint(dashboard_bp)
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -1098,6 +1102,9 @@ def api_report_preview():
         'summary': summary,
         'total_hours': round(sum(data['total_minutes'] for data in employee_data.values()) / 60, 2)
     })
+
+
+# Dashboard is in dashboard.py (imported as blueprint above)
 
 
 # =============================================================================
