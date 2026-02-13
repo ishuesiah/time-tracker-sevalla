@@ -168,7 +168,7 @@ def get_dashboard_html(user):
     audit_section = '''
             <div class="audit-section" id="auditSection">
                 <h2>Audit Log (Time Adjustments)</h2>
-                <div id="auditContainer">
+                <div id="auditContainer" class="audit-container">
                     <div class="loading">Loading audit log...</div>
                 </div>
             </div>
@@ -381,7 +381,13 @@ def get_dashboard_html(user):
             border-top: 2px solid #eee;
         }}
         .audit-section h2 {{ font-size: 18px; margin-bottom: 15px; color: #333; }}
-        .audit-table {{ font-size: 13px; }}
+        .audit-container {{
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }}
+        .audit-table {{ font-size: 13px; width: 100%; }}
         .audit-table th, .audit-table td {{ padding: 8px 12px; }}
         .action-badge {{
             display: inline-block;
@@ -486,10 +492,6 @@ def get_dashboard_html(user):
                     <div class="number" id="totalHours">-</div>
                     <div class="label">Total Hours</div>
                 </div>
-                <div class="summary-card">
-                    <div class="number" id="totalSessions">-</div>
-                    <div class="label">Sessions</div>
-                </div>
             </div>
 
             <div id="tableContainer">
@@ -561,7 +563,6 @@ def get_dashboard_html(user):
         function updateSummary(data) {{
             document.getElementById('totalEmployees').textContent = data.summary.length;
             document.getElementById('totalHours').textContent = data.total_hours.toFixed(1);
-            document.getElementById('totalSessions').textContent = data.total_sessions;
         }}
 
         function updateEmployeeFilter(employees) {{
@@ -603,7 +604,6 @@ def get_dashboard_html(user):
                             <th>Employee</th>
                             <th>Hours</th>
                             <th>Days Worked</th>
-                            <th>Sessions</th>
                             <th>Avg/Day</th>
                         </tr>
                     </thead>
@@ -617,7 +617,6 @@ def get_dashboard_html(user):
                         <td class="employee-name">${{row.employee}}</td>
                         <td>${{row.total_hours.toFixed(1)}} hrs</td>
                         <td>${{row.days_worked}}</td>
-                        <td>${{row.sessions}}</td>
                         <td>${{avgPerDay}} hrs</td>
                     </tr>
                 `;
@@ -628,7 +627,6 @@ def get_dashboard_html(user):
                         <td>Total</td>
                         <td>${{data.total_hours.toFixed(1)}} hrs</td>
                         <td>-</td>
-                        <td>${{data.total_sessions}}</td>
                         <td>-</td>
                     </tr>
                 </tbody></table>
