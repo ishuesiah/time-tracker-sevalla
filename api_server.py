@@ -380,7 +380,9 @@ def get_employee_name_from_email(email: str) -> str:
 def login():
     """Redirect to Google OAuth login."""
     # Get the redirect URI dynamically based on the request
+    # Force HTTPS for production (behind proxy)
     redirect_uri = request.url_root.rstrip('/') + '/login/callback'
+    redirect_uri = redirect_uri.replace('http://', 'https://')
     return google.authorize_redirect(redirect_uri)
 
 
