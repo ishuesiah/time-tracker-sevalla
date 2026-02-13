@@ -38,6 +38,7 @@ import requests
 import random
 
 app = Flask(__name__)
+_db_initialized = False
 
 # =============================================================================
 # CONFIGURATION
@@ -112,6 +113,18 @@ def init_database():
 
             conn.commit()
     print("Database initialized")
+
+
+@app.before_request
+def ensure_db_initialized():
+    """Initialize database tables on first request."""
+    global _db_initialized
+    if not _db_initialized and DATABASE_URL:
+        try:
+            init_database()
+            _db_initialized = True
+        except Exception as e:
+            print(f"Database init error: {e}")
 
 
 def record_clock_event(
