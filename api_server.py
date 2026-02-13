@@ -27,6 +27,7 @@ import smtplib
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Tuple, List
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -55,6 +56,9 @@ SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USER = os.environ.get('SMTP_USER', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 REPORT_EMAIL_TO = os.environ.get('REPORT_EMAIL_TO', '')
+
+# Timezone configuration (default: Pacific Time for Vancouver)
+TIMEZONE = ZoneInfo(os.environ.get('TIMEZONE', 'America/Vancouver'))
 
 # Slack message templates
 SLACK_MESSAGES = {
@@ -222,8 +226,20 @@ def format_duration(minutes: int) -> str:
 
 
 def format_time(dt: datetime) -> str:
-    """Format a datetime as a human-readable time string."""
-    return dt.strftime("%-I:%M %p") if hasattr(dt, 'strftime') else str(dt)
+    """Format a datetime as a human-readable time string in local timezone."""
+    if hasattr(dt, 'strftime'):
+        # Convert to local timezone if naive or UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+        else:
+            dt = dt.astimezone(TIMEZONE)
+        return dt.strftime("%I:%M %p").lstrip('0')
+    return str(dt)
+
+
+def now_local() -> datetime:
+    """Get current time in configured timezone."""
+    return datetime.now(TIMEZONE)
 
 
 def send_slack_notification(message: str) -> bool:
@@ -319,7 +335,7 @@ def handle_clockin():
         })
 
     # Clock in
-    now = datetime.now()
+    now = now_local()
     record_clock_event(
         mac_address=mac_address,
         employee_name=employee_name,
@@ -366,7 +382,10 @@ def handle_clockout():
         })
 
     clock_in_time = last_event[1]
-    now = datetime.now()
+    now = now_local()
+    # Make clock_in_time timezone-aware if it isn't
+    if clock_in_time.tzinfo is None:
+        clock_in_time = clock_in_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
     work_duration = now - clock_in_time
     work_minutes = int(work_duration.total_seconds() / 60)
 
@@ -409,11 +428,11 @@ def handle_hours():
         })
 
     # Get today's hours
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = now_local().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
 
     # Get this week's hours (Mon-Sun)
-    today = datetime.now().date()
+    today = now_local().date()
     days_since_monday = today.weekday()
     week_start = datetime.combine(today - timedelta(days=days_since_monday), datetime.min.time())
     week_end = week_start + timedelta(days=7)
@@ -443,7 +462,7 @@ def handle_hours():
     is_clocked_in = last_event and last_event[0] == 'clock_in'
 
     if is_clocked_in:
-        current_session = int((datetime.now() - last_event[1]).total_seconds() / 60)
+        current_session = int((now_local() - last_event[1].replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)).total_seconds() / 60)
         today_minutes += current_session
         week_minutes += current_session
 
@@ -587,7 +606,7 @@ def api_summary():
 def get_weekly_summary(end_date: Optional[datetime] = None, weeks: int = 1) -> Tuple[datetime, datetime, Dict]:
     """Generate a summary of employee hours for the specified number of weeks."""
     if end_date is None:
-        today = datetime.now().date()
+        today = now_local().date()
         days_since_sunday = (today.weekday() + 1) % 7
         if days_since_sunday == 0:
             days_since_sunday = 7
