@@ -174,6 +174,74 @@ def get_dashboard_html(user):
             </div>
     ''' if is_admin else ''
 
+    # Edit section - different for admin vs employee
+    if is_admin:
+        edit_section = '''
+            <div class="edit-section">
+                <h3>Edit Time Entry</h3>
+                <div class="edit-form">
+                    <div class="edit-row">
+                        <div>
+                            <label>Employee:</label>
+                            <select id="editEmployee" onchange="loadDayData()">
+                                <option value="">Select employee...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Date:</label>
+                            <input type="date" id="editDate" onchange="loadDayData()">
+                        </div>
+                    </div>
+                    <div id="editFields" style="display: none;">
+                        <div class="edit-row">
+                            <div>
+                                <label>Clock In:</label>
+                                <input type="time" id="editClockIn">
+                            </div>
+                            <div>
+                                <label>Clock Out:</label>
+                                <input type="time" id="editClockOut">
+                            </div>
+                            <div>
+                                <button onclick="saveTimeEntry()">Save Changes</button>
+                            </div>
+                        </div>
+                        <div id="editStatus" class="edit-status"></div>
+                    </div>
+                </div>
+            </div>
+        '''
+    else:
+        edit_section = '''
+            <div class="edit-section">
+                <h3>Edit My Time</h3>
+                <div class="edit-form">
+                    <div class="edit-row">
+                        <div>
+                            <label>Date:</label>
+                            <input type="date" id="editDate" onchange="loadDayData()">
+                        </div>
+                    </div>
+                    <div id="editFields" style="display: none;">
+                        <div class="edit-row">
+                            <div>
+                                <label>Clock In:</label>
+                                <input type="time" id="editClockIn">
+                            </div>
+                            <div>
+                                <label>Clock Out:</label>
+                                <input type="time" id="editClockOut">
+                            </div>
+                            <div>
+                                <button onclick="saveTimeEntry()">Save Changes</button>
+                            </div>
+                        </div>
+                        <div id="editStatus" class="edit-status"></div>
+                    </div>
+                </div>
+            </div>
+        '''
+
     employee_filter_html = '''
                 <div>
                     <label>Employee:</label>
@@ -329,51 +397,49 @@ def get_dashboard_html(user):
         .action-dashboard_adjust {{ background: #e8f5e9; color: #2e7d32; }}
         .change-arrow {{ color: #999; margin: 0 5px; }}
 
-        /* Modal styles */
-        .modal {{
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
+        /* Edit section styles */
+        .edit-section {{
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
         }}
-        .modal.active {{ display: flex; }}
-        .modal-content {{
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 500px;
-            width: 90%;
-        }}
-        .modal-content h3 {{ margin-bottom: 20px; }}
-        .form-group {{
+        .edit-section h3 {{
             margin-bottom: 15px;
+            color: #333;
         }}
-        .form-group label {{
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-        }}
-        .form-group input, .form-group select {{
-            width: 100%;
-        }}
-        .modal-buttons {{
+        .edit-form {{
             display: flex;
-            gap: 10px;
-            margin-top: 20px;
+            flex-direction: column;
+            gap: 15px;
         }}
-        .detail-table {{
-            font-size: 13px;
-            margin-top: 15px;
+        .edit-row {{
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
         }}
-        .detail-table td {{
-            padding: 6px 10px;
+        .edit-row > div {{
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
         }}
+        .edit-status {{
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }}
+        .edit-status.success {{ background: #e8f5e9; color: #2e7d32; }}
+        .edit-status.error {{ background: #ffebee; color: #c62828; }}
+        .edit-status.info {{ background: #e3f2fd; color: #1565c0; }}
+
+        /* Delete button for audit */
+        .btn-delete {{
+            background: #f44336;
+            padding: 4px 8px;
+            font-size: 11px;
+        }}
+        .btn-delete:hover {{ background: #d32f2f; }}
     </style>
 </head>
 <body>
@@ -430,43 +496,9 @@ def get_dashboard_html(user):
                 <div class="loading">Loading...</div>
             </div>
 
-            <h3 style="margin-top: 30px; margin-bottom: 10px;">Daily Details</h3>
-            <div id="detailContainer">
-                <div class="loading">Select filters and click Apply to see daily details</div>
-            </div>
+            {edit_section}
 
             {audit_section}
-        </div>
-    </div>
-
-    <!-- Edit Modal -->
-    <div class="modal" id="editModal">
-        <div class="modal-content">
-            <h3>Adjust Time Entry</h3>
-            <form id="editForm">
-                <input type="hidden" id="editEventId">
-                <input type="hidden" id="editEmployee">
-                <div class="form-group">
-                    <label>Employee</label>
-                    <input type="text" id="editEmployeeDisplay" readonly style="background: #f5f5f5;">
-                </div>
-                <div class="form-group">
-                    <label>Date</label>
-                    <input type="date" id="editDate" required>
-                </div>
-                <div class="form-group">
-                    <label>Clock In</label>
-                    <input type="time" id="editClockIn" required>
-                </div>
-                <div class="form-group">
-                    <label>Clock Out</label>
-                    <input type="time" id="editClockOut" required>
-                </div>
-                <div class="modal-buttons">
-                    <button type="submit">Save Changes</button>
-                    <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
-                </div>
-            </form>
         </div>
     </div>
 
@@ -474,7 +506,7 @@ def get_dashboard_html(user):
         const isAdmin = {'true' if is_admin else 'false'};
         const userEmployeeName = "{employee_name_hint}";
         let currentData = [];
-        let detailData = [];
+        let allEmployees = [];
 
         function initDates() {{
             const today = new Date();
@@ -482,6 +514,10 @@ def get_dashboard_html(user):
             twoWeeksAgo.setDate(today.getDate() - 14);
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
             document.getElementById('startDate').value = twoWeeksAgo.toISOString().split('T')[0];
+
+            // Set edit date to today
+            const editDate = document.getElementById('editDate');
+            if (editDate) editDate.value = today.toISOString().split('T')[0];
         }}
 
         function applyQuickPeriod() {{
@@ -505,25 +541,20 @@ def get_dashboard_html(user):
             }}
 
             document.getElementById('tableContainer').innerHTML = '<div class="loading">Loading...</div>';
-            document.getElementById('detailContainer').innerHTML = '<div class="loading">Loading...</div>';
 
             try {{
                 const response = await fetch(`/dashboard/data?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`);
                 const data = await response.json();
                 currentData = data;
+                allEmployees = data.all_employees || [];
                 renderTable(data);
                 updateSummary(data);
                 if (isAdmin) {{
                     updateEmployeeFilter(data.all_employees);
+                    updateEditEmployeeSelect(data.all_employees);
                 }}
-
-                // Load daily details
-                const detailResponse = await fetch(`/dashboard/details?start=${{startDate}}&end=${{endDate}}&employee=${{encodeURIComponent(employee)}}`);
-                detailData = await detailResponse.json();
-                renderDetails(detailData);
             }} catch (error) {{
                 document.getElementById('tableContainer').innerHTML = '<div class="loading">Error loading data</div>';
-                document.getElementById('detailContainer').innerHTML = '<div class="loading">Error loading details</div>';
             }}
         }}
 
@@ -543,6 +574,18 @@ def get_dashboard_html(user):
                 option.value = emp;
                 option.textContent = emp;
                 if (emp === currentValue) option.selected = true;
+                select.appendChild(option);
+            }});
+        }}
+
+        function updateEditEmployeeSelect(employees) {{
+            const select = document.getElementById('editEmployee');
+            if (!select || select.tagName !== 'SELECT') return;
+            select.innerHTML = '<option value="">Select employee...</option>';
+            employees.forEach(emp => {{
+                const option = document.createElement('option');
+                option.value = emp;
+                option.textContent = emp;
                 select.appendChild(option);
             }});
         }}
@@ -594,44 +637,117 @@ def get_dashboard_html(user):
             document.getElementById('tableContainer').innerHTML = html;
         }}
 
-        function renderDetails(data) {{
-            if (!data.entries || data.entries.length === 0) {{
-                document.getElementById('detailContainer').innerHTML = '<div class="loading">No detailed entries found</div>';
+        // Edit time entry functions
+        async function loadDayData() {{
+            const date = document.getElementById('editDate').value;
+            let employee;
+
+            if (isAdmin) {{
+                employee = document.getElementById('editEmployee').value;
+                if (!employee || !date) {{
+                    document.getElementById('editFields').style.display = 'none';
+                    return;
+                }}
+            }} else {{
+                employee = userEmployeeName;
+                if (!date) {{
+                    document.getElementById('editFields').style.display = 'none';
+                    return;
+                }}
+            }}
+
+            const statusEl = document.getElementById('editStatus');
+            statusEl.className = 'edit-status info';
+            statusEl.textContent = 'Loading...';
+            document.getElementById('editFields').style.display = 'block';
+
+            try {{
+                const response = await fetch(`/dashboard/day-entry?date=${{date}}&employee=${{encodeURIComponent(employee)}}`);
+                const data = await response.json();
+
+                if (data.clock_in) {{
+                    document.getElementById('editClockIn').value = data.clock_in;
+                }} else {{
+                    document.getElementById('editClockIn').value = '';
+                }}
+
+                if (data.clock_out) {{
+                    document.getElementById('editClockOut').value = data.clock_out;
+                }} else {{
+                    document.getElementById('editClockOut').value = '';
+                }}
+
+                if (data.clock_in || data.clock_out) {{
+                    statusEl.className = 'edit-status info';
+                    statusEl.textContent = `Found entry: ${{data.clock_in || '?'}} - ${{data.clock_out || '?'}}`;
+                }} else {{
+                    statusEl.className = 'edit-status info';
+                    statusEl.textContent = 'No entry found for this date. Add new times below.';
+                }}
+            }} catch (error) {{
+                statusEl.className = 'edit-status error';
+                statusEl.textContent = 'Error loading data';
+            }}
+        }}
+
+        async function saveTimeEntry() {{
+            const date = document.getElementById('editDate').value;
+            const clockIn = document.getElementById('editClockIn').value;
+            const clockOut = document.getElementById('editClockOut').value;
+            let employee;
+
+            if (isAdmin) {{
+                employee = document.getElementById('editEmployee').value;
+            }} else {{
+                // For non-admin, we need to find their actual employee name from the data
+                if (currentData.summary && currentData.summary.length > 0) {{
+                    employee = currentData.summary[0].employee;
+                }} else {{
+                    employee = userEmployeeName;
+                }}
+            }}
+
+            if (!date) {{
+                alert('Please select a date');
                 return;
             }}
 
-            let html = `
-                <table class="detail-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Employee</th>
-                            <th>Clock In</th>
-                            <th>Clock Out</th>
-                            <th>Hours</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
+            if (!clockIn && !clockOut) {{
+                alert('Please enter at least one time');
+                return;
+            }}
 
-            data.entries.forEach(entry => {{
-                html += `
-                    <tr>
-                        <td>${{entry.date}}</td>
-                        <td class="employee-name">${{entry.employee}}</td>
-                        <td>${{entry.clock_in || '-'}}</td>
-                        <td>${{entry.clock_out || '-'}}</td>
-                        <td>${{entry.hours ? entry.hours.toFixed(1) + ' hrs' : '-'}}</td>
-                        <td>
-                            <button class="btn-edit" onclick="openEditModal('${{entry.employee}}', '${{entry.date}}', '${{entry.clock_in_raw || ''}}', '${{entry.clock_out_raw || ''}}', ${{entry.clock_in_id || 'null'}}, ${{entry.clock_out_id || 'null'}})">Edit</button>
-                        </td>
-                    </tr>
-                `;
-            }});
+            const statusEl = document.getElementById('editStatus');
+            statusEl.className = 'edit-status info';
+            statusEl.textContent = 'Saving...';
 
-            html += '</tbody></table>';
-            document.getElementById('detailContainer').innerHTML = html;
+            try {{
+                const response = await fetch('/dashboard/adjust', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{
+                        employee: employee,
+                        date: date,
+                        clock_in: clockIn,
+                        clock_out: clockOut
+                    }})
+                }});
+
+                const result = await response.json();
+
+                if (response.ok) {{
+                    statusEl.className = 'edit-status success';
+                    statusEl.textContent = 'Saved successfully!';
+                    loadData();
+                    if (isAdmin) loadAuditLog();
+                }} else {{
+                    statusEl.className = 'edit-status error';
+                    statusEl.textContent = 'Error: ' + (result.error || 'Failed to save');
+                }}
+            }} catch (error) {{
+                statusEl.className = 'edit-status error';
+                statusEl.textContent = 'Error saving changes';
+            }}
         }}
 
         function downloadCSV() {{
@@ -681,6 +797,7 @@ def get_dashboard_html(user):
                             <th>Action</th>
                             <th>Change</th>
                             <th>Details</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -698,6 +815,7 @@ def get_dashboard_html(user):
                         <td><span class="action-badge action-${{log.action}}">${{formatAction(log.action)}}</span></td>
                         <td>${{changeHtml}}</td>
                         <td>${{log.details || '-'}}</td>
+                        <td><button class="btn-delete" onclick="deleteAuditLog(${{log.id}})">Delete</button></td>
                     </tr>
                 `;
             }});
@@ -706,51 +824,24 @@ def get_dashboard_html(user):
             container.innerHTML = html;
         }}
 
-        // Modal functions
-        function openEditModal(employee, date, clockIn, clockOut, clockInId, clockOutId) {{
-            document.getElementById('editEmployee').value = employee;
-            document.getElementById('editEmployeeDisplay').value = employee;
-            document.getElementById('editDate').value = date;
-            document.getElementById('editClockIn').value = clockIn || '';
-            document.getElementById('editClockOut').value = clockOut || '';
-            document.getElementById('editModal').classList.add('active');
-        }}
-
-        function closeModal() {{
-            document.getElementById('editModal').classList.remove('active');
-        }}
-
-        document.getElementById('editForm').addEventListener('submit', async function(e) {{
-            e.preventDefault();
-
-            const data = {{
-                employee: document.getElementById('editEmployee').value,
-                date: document.getElementById('editDate').value,
-                clock_in: document.getElementById('editClockIn').value,
-                clock_out: document.getElementById('editClockOut').value
-            }};
+        async function deleteAuditLog(id) {{
+            if (!confirm('Delete this audit log entry?')) return;
 
             try {{
-                const response = await fetch('/dashboard/adjust', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify(data)
+                const response = await fetch(`/dashboard/audit/${{id}}`, {{
+                    method: 'DELETE'
                 }});
 
-                const result = await response.json();
-
                 if (response.ok) {{
-                    closeModal();
-                    loadData();
-                    if (isAdmin) loadAuditLog();
-                    alert('Time entry updated successfully');
+                    loadAuditLog();
                 }} else {{
-                    alert('Error: ' + (result.error || 'Failed to update'));
+                    const result = await response.json();
+                    alert('Error: ' + (result.error || 'Failed to delete'));
                 }}
             }} catch (error) {{
-                alert('Error updating time entry');
+                alert('Error deleting audit log');
             }}
-        }});
+        }}
 
         // Initialize
         initDates();
@@ -1217,6 +1308,97 @@ def dashboard_download():
     )
 
 
+@dashboard_bp.route('/dashboard/day-entry')
+def dashboard_day_entry():
+    """API endpoint to get a single day's clock-in/out times for editing."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
+    employee = request.args.get('employee', '').strip()
+    date_str = request.args.get('date', '').strip()
+
+    if not date_str:
+        return jsonify({'error': 'Date is required'}), 400
+
+    # Non-admins can only see their own data
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        employee = user_employee_name
+
+    if not employee:
+        return jsonify({'error': 'Employee is required'}), 400
+
+    try:
+        entry_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    day_start = datetime.combine(entry_date, datetime.min.time()).replace(tzinfo=TIMEZONE)
+    day_end = datetime.combine(entry_date, datetime.max.time()).replace(tzinfo=TIMEZONE)
+
+    clock_in_time = None
+    clock_out_time = None
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            # Get clock-in
+            if is_admin:
+                cursor.execute('''
+                    SELECT timestamp FROM clock_events
+                    WHERE employee_name = %s AND event_type = 'clock_in'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (employee, day_start, day_end))
+            else:
+                cursor.execute('''
+                    SELECT timestamp FROM clock_events
+                    WHERE LOWER(employee_name) LIKE LOWER(%s) AND event_type = 'clock_in'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (f'%{employee}%', day_start, day_end))
+            result = cursor.fetchone()
+            if result:
+                ts = result[0]
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+                else:
+                    ts = ts.astimezone(TIMEZONE)
+                clock_in_time = ts.strftime('%H:%M')
+
+            # Get clock-out
+            if is_admin:
+                cursor.execute('''
+                    SELECT timestamp FROM clock_events
+                    WHERE employee_name = %s AND event_type = 'clock_out'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (employee, day_start, day_end))
+            else:
+                cursor.execute('''
+                    SELECT timestamp FROM clock_events
+                    WHERE LOWER(employee_name) LIKE LOWER(%s) AND event_type = 'clock_out'
+                    AND timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (f'%{employee}%', day_start, day_end))
+            result = cursor.fetchone()
+            if result:
+                ts = result[0]
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+                else:
+                    ts = ts.astimezone(TIMEZONE)
+                clock_out_time = ts.strftime('%H:%M')
+
+    return jsonify({
+        'clock_in': clock_in_time,
+        'clock_out': clock_out_time,
+        'employee': employee,
+        'date': date_str
+    })
+
+
 @dashboard_bp.route('/dashboard/audit')
 def dashboard_audit():
     """API endpoint for audit log data (admin only)."""
@@ -1232,7 +1414,7 @@ def dashboard_audit():
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute('''
-                SELECT timestamp, employee_name, action, details, old_value, new_value
+                SELECT id, timestamp, employee_name, action, details, old_value, new_value
                 FROM audit_log
                 ORDER BY timestamp DESC
                 LIMIT %s
@@ -1241,7 +1423,7 @@ def dashboard_audit():
 
     logs = []
     for row in results:
-        timestamp = row[0]
+        timestamp = row[1]
         if hasattr(timestamp, 'strftime'):
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
@@ -1252,12 +1434,35 @@ def dashboard_audit():
             timestamp_str = str(timestamp)
 
         logs.append({
+            'id': row[0],
             'timestamp': timestamp_str,
-            'employee_name': row[1],
-            'action': row[2],
-            'details': row[3],
-            'old_value': row[4],
-            'new_value': row[5]
+            'employee_name': row[2],
+            'action': row[3],
+            'details': row[4],
+            'old_value': row[5],
+            'new_value': row[6]
         })
 
     return jsonify({'logs': logs})
+
+
+@dashboard_bp.route('/dashboard/audit/<int:audit_id>', methods=['DELETE'])
+def dashboard_audit_delete(audit_id):
+    """API endpoint to delete an audit log entry (admin only)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    if not is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('DELETE FROM audit_log WHERE id = %s', (audit_id,))
+            deleted = cursor.rowcount
+            conn.commit()
+
+    if deleted:
+        return jsonify({'status': 'ok', 'message': 'Audit log entry deleted'})
+    else:
+        return jsonify({'error': 'Audit log entry not found'}), 404
