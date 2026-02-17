@@ -577,7 +577,7 @@ def get_dashboard_html(user):
 
             <div id="todayView" class="view-container">
                 <div id="todayContainer">
-                    <div class="loading">Loading today's activity...</div>
+                    <div class="loading">Loading...</div>
                 </div>
             </div>
 
@@ -757,7 +757,7 @@ def get_dashboard_html(user):
         }}
 
         async function loadToday() {{
-            document.getElementById('todayContainer').innerHTML = '<div class="loading">Loading today\'s activity...</div>';
+            document.getElementById('todayContainer').innerHTML = '<div class="loading">Loading...</div>';
 
             try {{
                 const response = await fetch('/dashboard/today');
@@ -774,51 +774,35 @@ def get_dashboard_html(user):
                 return;
             }}
 
-            const workingCount = data.entries.filter(e => e.status === 'working').length;
-            const completedCount = data.entries.filter(e => e.status === 'completed').length;
+            var workingCount = 0;
+            var completedCount = 0;
+            for (var i = 0; i < data.entries.length; i++) {{
+                if (data.entries[i].status === 'working') workingCount++;
+                else completedCount++;
+            }}
 
-            let html = `
-                <div class="today-summary">
-                    <div class="today-stat working">
-                        <div class="number">${{workingCount}}</div>
-                        <div class="label">Currently Working</div>
-                    </div>
-                    <div class="today-stat">
-                        <div class="number">${{completedCount}}</div>
-                        <div class="label">Completed Shift</div>
-                    </div>
-                    <div class="today-stat">
-                        <div class="number">${{data.entries.length}}</div>
-                        <div class="label">Total Today</div>
-                    </div>
-                </div>
-                <table class="today-table">
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Status</th>
-                            <th>Clock In</th>
-                            <th>Clock Out</th>
-                            <th>Hours</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
+            var html = '<div class="today-summary">' +
+                '<div class="today-stat working"><div class="number">' + workingCount + '</div><div class="label">Currently Working</div></div>' +
+                '<div class="today-stat"><div class="number">' + completedCount + '</div><div class="label">Completed Shift</div></div>' +
+                '<div class="today-stat"><div class="number">' + data.entries.length + '</div><div class="label">Total Today</div></div>' +
+                '</div>' +
+                '<table class="today-table"><thead><tr>' +
+                '<th>Employee</th><th>Status</th><th>Clock In</th><th>Clock Out</th><th>Hours</th>' +
+                '</tr></thead><tbody>';
 
-            data.entries.forEach(entry => {{
-                const statusClass = entry.status === 'working' ? 'status-working' : 'status-completed';
-                const statusText = entry.status === 'working' ? 'Working' : 'Completed';
-                const hours = entry.hours ? entry.hours.toFixed(1) : '-';
-                html += `
-                    <tr>
-                        <td class="employee-name">${{entry.employee}}</td>
-                        <td><span class="status-badge ${{statusClass}}">${{statusText}}</span></td>
-                        <td>${{entry.clock_in || '-'}}</td>
-                        <td>${{entry.clock_out || '-'}}</td>
-                        <td>${{hours}} hrs</td>
-                    </tr>
-                `;
-            }});
+            for (var j = 0; j < data.entries.length; j++) {{
+                var entry = data.entries[j];
+                var statusClass = entry.status === 'working' ? 'status-working' : 'status-completed';
+                var statusText = entry.status === 'working' ? 'Working' : 'Completed';
+                var hours = entry.hours ? entry.hours.toFixed(1) : '-';
+                html += '<tr>' +
+                    '<td class="employee-name">' + entry.employee + '</td>' +
+                    '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>' +
+                    '<td>' + (entry.clock_in || '-') + '</td>' +
+                    '<td>' + (entry.clock_out || '-') + '</td>' +
+                    '<td>' + hours + ' hrs</td>' +
+                    '</tr>';
+            }}
 
             html += '</tbody></table>';
             document.getElementById('todayContainer').innerHTML = html;
