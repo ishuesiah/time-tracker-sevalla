@@ -136,7 +136,7 @@ LOGIN_HTML = '''
 <body>
     <div class="login-card">
         <h1>Time Tracker</h1>
-        
+        <p>Sign in to view your hours</p>
         <a href="/login" class="login-btn">
             <svg class="google-icon" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -489,6 +489,47 @@ def get_dashboard_html(user):
         .days-table {{ font-size: 14px; }}
         .days-table th {{ background: #f0f7e6; }}
         .day-date {{ font-weight: 500; }}
+
+        /* Today view styles */
+        .today-table {{ font-size: 14px; }}
+        .today-table th {{ background: #e3f2fd; }}
+        .status-badge {{
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        .status-working {{
+            background: #c8e6c9;
+            color: #2e7d32;
+        }}
+        .status-completed {{
+            background: #e0e0e0;
+            color: #616161;
+        }}
+        .today-summary {{
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }}
+        .today-stat {{
+            background: #f5f5f5;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-align: center;
+        }}
+        .today-stat .number {{
+            font-size: 24px;
+            font-weight: 600;
+            color: #4a7c23;
+        }}
+        .today-stat .label {{
+            font-size: 12px;
+            color: #666;
+        }}
+        .today-stat.working .number {{ color: #2e7d32; }}
     </style>
 </head>
 <body>
@@ -529,8 +570,15 @@ def get_dashboard_html(user):
             {summary_cards_html}
 
             <div class="view-tabs">
+                <button class="tab-btn" onclick="showView('today')">Today</button>
                 <button class="tab-btn active" onclick="showView('summary')">Summary</button>
                 <button class="tab-btn" onclick="showView('days')">View Days</button>
+            </div>
+
+            <div id="todayView" class="view-container">
+                <div id="todayContainer">
+                    <div class="loading">Loading today's activity...</div>
+                </div>
             </div>
 
             <div id="summaryView" class="view-container active">
@@ -693,14 +741,87 @@ def get_dashboard_html(user):
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.view-container').forEach(c => c.classList.remove('active'));
 
-            if (view === 'summary') {{
-                document.querySelector('.tab-btn:first-child').classList.add('active');
+            const tabs = document.querySelectorAll('.tab-btn');
+            if (view === 'today') {{
+                tabs[0].classList.add('active');
+                document.getElementById('todayView').classList.add('active');
+                loadToday();
+            }} else if (view === 'summary') {{
+                tabs[1].classList.add('active');
                 document.getElementById('summaryView').classList.add('active');
             }} else {{
-                document.querySelector('.tab-btn:last-child').classList.add('active');
+                tabs[2].classList.add('active');
                 document.getElementById('daysView').classList.add('active');
                 loadDays();
             }}
+        }}
+
+        async function loadToday() {{
+            document.getElementById('todayContainer').innerHTML = '<div class="loading">Loading today\'s activity...</div>';
+
+            try {{
+                const response = await fetch('/dashboard/today');
+                const data = await response.json();
+                renderToday(data);
+            }} catch (error) {{
+                document.getElementById('todayContainer').innerHTML = '<div class="loading">Error loading data</div>';
+            }}
+        }}
+
+        function renderToday(data) {{
+            if (!data.entries || data.entries.length === 0) {{
+                document.getElementById('todayContainer').innerHTML = '<div class="loading">No one has clocked in today</div>';
+                return;
+            }}
+
+            const workingCount = data.entries.filter(e => e.status === 'working').length;
+            const completedCount = data.entries.filter(e => e.status === 'completed').length;
+
+            let html = `
+                <div class="today-summary">
+                    <div class="today-stat working">
+                        <div class="number">${{workingCount}}</div>
+                        <div class="label">Currently Working</div>
+                    </div>
+                    <div class="today-stat">
+                        <div class="number">${{completedCount}}</div>
+                        <div class="label">Completed Shift</div>
+                    </div>
+                    <div class="today-stat">
+                        <div class="number">${{data.entries.length}}</div>
+                        <div class="label">Total Today</div>
+                    </div>
+                </div>
+                <table class="today-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Status</th>
+                            <th>Clock In</th>
+                            <th>Clock Out</th>
+                            <th>Hours</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.entries.forEach(entry => {{
+                const statusClass = entry.status === 'working' ? 'status-working' : 'status-completed';
+                const statusText = entry.status === 'working' ? 'Working' : 'Completed';
+                const hours = entry.hours ? entry.hours.toFixed(1) : '-';
+                html += `
+                    <tr>
+                        <td class="employee-name">${{entry.employee}}</td>
+                        <td><span class="status-badge ${{statusClass}}">${{statusText}}</span></td>
+                        <td>${{entry.clock_in || '-'}}</td>
+                        <td>${{entry.clock_out || '-'}}</td>
+                        <td>${{hours}} hrs</td>
+                    </tr>
+                `;
+            }});
+
+            html += '</tbody></table>';
+            document.getElementById('todayContainer').innerHTML = html;
         }}
 
         async function loadDays() {{
@@ -1080,6 +1201,83 @@ def dashboard_data():
             'start': start_date.strftime('%Y-%m-%d'),
             'end': end_date.strftime('%Y-%m-%d')
         }
+    })
+
+
+@dashboard_bp.route('/dashboard/today')
+def dashboard_today():
+    """API endpoint for today's clock-in/out activity."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
+    today = now_local().date()
+    day_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=TIMEZONE)
+    day_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
+
+    # For non-admins, filter to their own data
+    user_employee_name = None
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            # Get all clock events for today
+            if is_admin:
+                cursor.execute('''
+                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                    FROM clock_events
+                    WHERE timestamp BETWEEN %s AND %s
+                    ORDER BY employee_name, timestamp
+                ''', (day_start, day_end))
+            else:
+                cursor.execute('''
+                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                    FROM clock_events
+                    WHERE timestamp BETWEEN %s AND %s
+                    AND LOWER(employee_name) LIKE LOWER(%s)
+                    ORDER BY employee_name, timestamp
+                ''', (day_start, day_end, f'%{user_employee_name}%'))
+
+            results = cursor.fetchall()
+
+    # Group events by employee
+    employees = {}
+    for row in results:
+        event_id, employee, event_type, timestamp, duration = row
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+        else:
+            timestamp = timestamp.astimezone(TIMEZONE)
+
+        if employee not in employees:
+            employees[employee] = {
+                'employee': employee,
+                'clock_in': None,
+                'clock_out': None,
+                'hours': None,
+                'status': 'working'
+            }
+
+        if event_type == 'clock_in':
+            employees[employee]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+        elif event_type == 'clock_out':
+            employees[employee]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            employees[employee]['status'] = 'completed'
+            if duration:
+                employees[employee]['hours'] = duration / 60
+
+    # Sort: working first, then by employee name
+    entries = sorted(
+        employees.values(),
+        key=lambda x: (0 if x['status'] == 'working' else 1, x['employee'])
+    )
+
+    return jsonify({
+        'entries': entries,
+        'date': today.strftime('%Y-%m-%d')
     })
 
 
