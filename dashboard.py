@@ -1198,12 +1198,9 @@ def dashboard_today():
     is_admin = is_admin_user(user)
     # Get today's date in local timezone
     today = now_local().date()
-    # Create boundaries in local timezone
-    day_start_local = datetime.combine(today, datetime.min.time()).replace(tzinfo=TIMEZONE)
-    day_end_local = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
-    # Convert to UTC (naive) to match database storage format
-    day_start = day_start_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
-    day_end = day_end_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    # Database stores timestamps as naive local time (PST), so use naive boundaries
+    day_start = datetime.combine(today, datetime.min.time())
+    day_end = datetime.combine(today, datetime.max.time())
 
     # For non-admins, filter to their own data
     user_employee_name = None
@@ -1236,8 +1233,9 @@ def dashboard_today():
     for row in results:
         event_id, employee, event_type, timestamp, duration = row
 
+        # Timestamps are stored as naive local time (PST), just add timezone info for formatting
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            timestamp = timestamp.replace(tzinfo=TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
