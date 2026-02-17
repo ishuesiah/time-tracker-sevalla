@@ -1212,14 +1212,14 @@ def dashboard_today():
             # Get all clock events for today
             if is_admin:
                 cursor.execute('''
-                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
                     FROM clock_events
                     WHERE timestamp BETWEEN %s AND %s
                     ORDER BY employee_name, timestamp
                 ''', (day_start, day_end))
             else:
                 cursor.execute('''
-                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                    SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
                     FROM clock_events
                     WHERE timestamp BETWEEN %s AND %s
                     AND LOWER(employee_name) LIKE LOWER(%s)
@@ -1231,11 +1231,18 @@ def dashboard_today():
     # Group events by employee
     employees = {}
     for row in results:
-        event_id, employee, event_type, timestamp, duration = row
+        event_id, employee, event_type, timestamp, duration, source = row
 
-        # Timestamps are stored as naive local time (PST), just add timezone info for formatting
+        # Handle timezone based on source:
+        # - 'wifi' (warehouse): timestamps stored as naive PST
+        # - 'slack' (remote): timestamps stored as naive UTC
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=TIMEZONE)
+            if source == 'slack':
+                # Remote clock-ins are stored in UTC, convert to PST
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            else:
+                # Warehouse wifi clock-ins are stored in PST
+                timestamp = timestamp.replace(tzinfo=TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
