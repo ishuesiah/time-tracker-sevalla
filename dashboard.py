@@ -9,7 +9,7 @@ Imported by api_server.py as a Flask Blueprint.
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, Response, session, redirect
+from flask import Blueprint, request, jsonify, Response, session, redirect, send_from_directory
 
 import psycopg2
 
@@ -156,124 +156,70 @@ LOGIN_HTML = '''
 # DASHBOARD HTML (with authentication)
 # =============================================================================
 
+# Get the directory where this file is located
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+
 def get_dashboard_html(user):
     """Generate dashboard HTML based on user role."""
     is_admin = is_admin_user(user)
     user_email = user.get('email', '') if user else ''
     user_name = user.get('name', '') if user else ''
+    user_initials = ''.join([n[0] for n in user_name.split()[:2]]).upper() if user_name else 'U'
 
-    # Determine employee filter hint for non-admins
-    employee_name_hint = get_employee_name_from_email(user_email) if not is_admin else ''
+    # Get current date info
+    today = now_local()
+    date_display = today.strftime('%A, %B %d, %Y')
 
-    audit_section = '''
-            <div class="audit-section" id="auditSection">
-                <h2>Audit Log (Time Adjustments)</h2>
-                <div id="auditContainer" class="audit-container">
-                    <div class="loading">Loading audit log...</div>
-                </div>
-            </div>
+    # Admin-specific navigation
+    admin_nav = '''
+            <div class="nav-section">Admin</div>
+            <a href="#" class="nav-item" data-view="timetrack">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                <span>Time Reports</span>
+            </a>
+            <a href="#" class="nav-item" data-view="settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                <span>Settings</span>
+            </a>
     ''' if is_admin else ''
 
-    # Edit section - different for admin vs employee
-    if is_admin:
-        edit_section = '''
-            <div class="edit-section">
-                <h3>Edit Time Entry</h3>
-                <div class="edit-form">
-                    <div class="edit-row">
-                        <div>
-                            <label>Employee:</label>
-                            <select id="editEmployee" onchange="loadDayData()">
-                                <option value="">Select employee...</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label>Date:</label>
-                            <input type="date" id="editDate" onchange="loadDayData()">
-                        </div>
-                    </div>
-                    <div id="editFields" style="display: none;">
-                        <div class="edit-row">
-                            <div>
-                                <label>Clock In:</label>
-                                <input type="time" id="editClockIn">
-                            </div>
-                            <div>
-                                <label>Clock Out:</label>
-                                <input type="time" id="editClockOut">
-                            </div>
-                            <div>
-                                <button onclick="saveTimeEntry()">Save Changes</button>
-                            </div>
-                        </div>
-                        <div id="editStatus" class="edit-status"></div>
-                    </div>
-                </div>
-            </div>
-        '''
-    else:
-        edit_section = '''
-            <div class="edit-section">
-                <h3>Edit My Time</h3>
-                <div class="edit-form">
-                    <div class="edit-row">
-                        <div>
-                            <label>Date:</label>
-                            <input type="date" id="editDate" onchange="loadDayData()">
-                        </div>
-                    </div>
-                    <div id="editFields" style="display: none;">
-                        <div class="edit-row">
-                            <div>
-                                <label>Clock In:</label>
-                                <input type="time" id="editClockIn">
-                            </div>
-                            <div>
-                                <label>Clock Out:</label>
-                                <input type="time" id="editClockOut">
-                            </div>
-                            <div>
-                                <button onclick="saveTimeEntry()">Save Changes</button>
-                            </div>
-                        </div>
-                        <div id="editStatus" class="edit-status"></div>
-                    </div>
-                </div>
-            </div>
-        '''
+    admin_badge = '<span style="background:#ffd700;color:#333;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:8px;">ADMIN</span>' if is_admin else ''
+    user_role = 'Administrator' if is_admin else 'Employee'
 
-    employee_filter_html = '''
-                <div>
-                    <label>Employee:</label>
-                    <select id="employeeFilter">
-                        <option value="">All Employees</option>
-                    </select>
-                </div>
-    ''' if is_admin else '<input type="hidden" id="employeeFilter" value="">'
+    # Read template file
+    template_path = os.path.join(TEMPLATE_DIR, 'dashboard.html')
+    with open(template_path, 'r') as f:
+        html = f.read()
 
-    download_btn_html = '<button class="btn-download" onclick="downloadCSV()">Download CSV</button>' if is_admin else ''
+    # Replace placeholders
+    html = html.replace('{{USER_NAME}}', user_name)
+    html = html.replace('{{USER_INITIALS}}', user_initials)
+    html = html.replace('{{USER_ROLE}}', user_role)
+    html = html.replace('{{ADMIN_NAV}}', admin_nav)
+    html = html.replace('{{ADMIN_BADGE}}', admin_badge)
+    html = html.replace('{{DATE_DISPLAY}}', date_display)
 
-    summary_cards_html = '''
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <div class="number" id="totalEmployees">-</div>
-                    <div class="label">Employees</div>
-                </div>
-                <div class="summary-card">
-                    <div class="number" id="totalHours">-</div>
-                    <div class="label">Total Hours</div>
-                </div>
-            </div>
-    ''' if is_admin else ''
+    return html
 
-    return f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Time Tracker Dashboard</title>
-    <style>
+
+# Static file serving
+@dashboard_bp.route('/static/<path:subpath>')
+def serve_static(subpath):
+    """Serve static files (CSS, JS)."""
+    return send_from_directory(STATIC_DIR, subpath)
+
+
+OLD_HTML_REMOVED = '''
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1228,10 +1174,7 @@ def get_dashboard_html(user):
         initDates();
         loadData();
         if (isAdmin) loadAuditLog();
-    </script>
-</body>
-</html>
-'''
+'''  # End of OLD_HTML_REMOVED
 
 
 # =============================================================================

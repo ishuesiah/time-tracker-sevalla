@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Tracker Dashboard</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Time Tracker
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span>Dashboard</span>
+                </a>
+
+                <a href="#" class="nav-item" data-view="calendar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>Calendar</span>
+                </a>
+
+                <a href="#" class="nav-item" data-view="attendance">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <span>Attendance</span>
+                </a>
+
+                {{ADMIN_NAV}}
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-menu">
+                    <div class="user-avatar">{{USER_INITIALS}}</div>
+                    <div class="user-info">
+                        <div class="user-name">{{USER_NAME}}{{ADMIN_BADGE}}</div>
+                        <div class="user-role">{{USER_ROLE}}</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <h1 class="page-title">Dashboard</h1>
+                <div class="header-actions">
+                    <a href="/logout" class="btn btn-logout">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                        Logout
+                    </a>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="view-section">
+                <div class="dashboard-grid">
+                    <!-- Calendar Widget -->
+                    <div class="widget calendar-widget">
+                        <div class="widget-header">
+                            <span class="widget-title">Calendar</span>
+                        </div>
+                        <div class="widget-body">
+                            <div id="calendar-container"></div>
+                        </div>
+                    </div>
+
+                    <!-- Today's Attendance Widget -->
+                    <div class="widget attendance-widget">
+                        <div class="widget-header">
+                            <span class="widget-title">Today's Attendance<span class="widget-count" id="stat-total">0</span></span>
+                        </div>
+                        <div class="widget-body">
+                            <div class="stats-row">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-working">0</div>
+                                    <div class="stat-label">Working</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-completed">0</div>
+                                    <div class="stat-label">Completed</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-total-display">0</div>
+                                    <div class="stat-label">Total</div>
+                                </div>
+                            </div>
+                            <div class="attendance-list" id="attendance-list">
+                                <div class="loading">
+                                    <div class="loading-spinner"></div>
+                                    Loading attendance...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Clock Widget -->
+                    <div class="widget clock-widget">
+                        <div class="widget-header">
+                            <span class="widget-title">Clock In / Out</span>
+                        </div>
+                        <div class="widget-body">
+                            <div class="clock-date">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 16 14"></polyline>
+                                </svg>
+                                {{DATE_DISPLAY}}
+                            </div>
+
+                            <div class="clock-times">
+                                <div class="clock-time-box active">
+                                    <div class="clock-time-label">Clock In</div>
+                                    <div class="clock-time-value" id="user-clock-in">--:--</div>
+                                </div>
+                                <div class="clock-time-box">
+                                    <div class="clock-time-label">Clock Out</div>
+                                    <div class="clock-time-value" id="user-clock-out">--:--</div>
+                                </div>
+                            </div>
+
+                            <div class="clock-current">
+                                <div class="clock-current-time" id="current-time">00:00:00</div>
+                                <div class="clock-current-label">Current Time</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Time Track View (Admin) -->
+            <div id="timetrack-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>Time Reports</h3>
+                    <div class="filters-bar">
+                        <div class="filter-group">
+                            <label>From:</label>
+                            <input type="date" id="startDate">
+                        </div>
+                        <div class="filter-group">
+                            <label>To:</label>
+                            <input type="date" id="endDate">
+                        </div>
+                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
+                        <button class="btn btn-secondary" onclick="downloadCSV()">Download CSV</button>
+                    </div>
+                    <div id="timetrack-table">
+                        <div class="loading">Select date range and click Apply</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calendar View -->
+            <div id="calendar-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>Calendar View</h3>
+                    <p style="color:#888;padding:20px;">Calendar view coming soon...</p>
+                </div>
+            </div>
+
+            <!-- Attendance View -->
+            <div id="attendance-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>Full Attendance Records</h3>
+                    <div id="full-attendance-list">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="settings-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>Settings</h3>
+                    <p style="color:#888;padding:20px;">Settings panel coming soon...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
