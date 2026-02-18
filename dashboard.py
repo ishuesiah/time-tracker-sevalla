@@ -1826,6 +1826,100 @@ def dashboard_day_entry():
     })
 
 
+@dashboard_bp.route('/dashboard/myshifts')
+def dashboard_myshifts():
+    """API endpoint for user's own shifts by week."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    user_employee_name = get_employee_name_from_email(user['email'])
+
+    start_str = request.args.get('start', '')
+    end_str = request.args.get('end', '')
+    today = now_local().date()
+
+    if start_str and end_str:
+        try:
+            start_date = datetime.combine(
+                datetime.strptime(start_str, '%Y-%m-%d').date(),
+                datetime.min.time()
+            )
+            end_date = datetime.combine(
+                datetime.strptime(end_str, '%Y-%m-%d').date(),
+                datetime.max.time()
+            )
+        except ValueError:
+            # Default to current week
+            day_of_week = today.weekday()
+            start_of_week = today - timedelta(days=day_of_week + 1)  # Sunday
+            end_of_week = start_of_week + timedelta(days=6)
+            start_date = datetime.combine(start_of_week, datetime.min.time())
+            end_date = datetime.combine(end_of_week, datetime.max.time())
+    else:
+        day_of_week = today.weekday()
+        start_of_week = today - timedelta(days=day_of_week + 1)
+        end_of_week = start_of_week + timedelta(days=6)
+        start_date = datetime.combine(start_of_week, datetime.min.time())
+        end_date = datetime.combine(end_of_week, datetime.max.time())
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
+                FROM clock_events
+                WHERE LOWER(employee_name) LIKE LOWER(%s)
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp
+            ''', (f'%{user_employee_name}%', start_date, end_date))
+            results = cursor.fetchall()
+
+    # Group events by date
+    days = {}
+    total_hours = 0
+
+    for row in results:
+        event_id, employee, event_type, timestamp, duration, source = row
+
+        # Handle timezone based on source
+        if timestamp.tzinfo is None:
+            if source == 'slack':
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            else:
+                timestamp = timestamp.replace(tzinfo=TIMEZONE)
+        else:
+            timestamp = timestamp.astimezone(TIMEZONE)
+
+        date_key = timestamp.strftime('%Y-%m-%d')
+
+        if date_key not in days:
+            day_date = timestamp.date()
+            days[date_key] = {
+                'date': date_key,
+                'date_display': timestamp.strftime('%b %d'),
+                'day_name': timestamp.strftime('%A'),
+                'clock_in': None,
+                'clock_out': None,
+                'hours': None
+            }
+
+        if event_type == 'clock_in':
+            days[date_key]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+        elif event_type == 'clock_out':
+            days[date_key]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            if duration:
+                days[date_key]['hours'] = duration / 60
+                total_hours += duration / 60
+
+    # Sort by date descending (most recent first)
+    shifts = sorted(days.values(), key=lambda x: x['date'], reverse=True)
+
+    return jsonify({
+        'shifts': shifts,
+        'total_hours': round(total_hours, 2)
+    })
+
+
 @dashboard_bp.route('/dashboard/audit')
 def dashboard_audit():
     """API endpoint for audit log data (admin only)."""

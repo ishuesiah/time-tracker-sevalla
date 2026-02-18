@@ -51,6 +51,14 @@
                     <span>Attendance</span>
                 </a>
 
+                <a href="#" class="nav-item" data-view="myshifts">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>My Hours</span>
+                </a>
+
                 {{ADMIN_NAV}}
             </nav>
 
@@ -123,37 +131,6 @@
                         </div>
                     </div>
 
-                    <!-- Clock Widget -->
-                    <div class="widget clock-widget">
-                        <div class="widget-header">
-                            <span class="widget-title">Clock In / Out</span>
-                        </div>
-                        <div class="widget-body">
-                            <div class="clock-date">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="12" cy="12" r="10"></circle>
-                                    <polyline points="12 6 12 12 16 14"></polyline>
-                                </svg>
-                                {{DATE_DISPLAY}}
-                            </div>
-
-                            <div class="clock-times">
-                                <div class="clock-time-box active">
-                                    <div class="clock-time-label">Clock In</div>
-                                    <div class="clock-time-value" id="user-clock-in">--:--</div>
-                                </div>
-                                <div class="clock-time-box">
-                                    <div class="clock-time-label">Clock Out</div>
-                                    <div class="clock-time-value" id="user-clock-out">--:--</div>
-                                </div>
-                            </div>
-
-                            <div class="clock-current">
-                                <div class="clock-current-time" id="current-time">00:00:00</div>
-                                <div class="clock-current-label">Current Time</div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -193,6 +170,30 @@
                     <h3>Full Attendance Records</h3>
                     <div id="full-attendance-list">
                         <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My Hours View -->
+            <div id="myshifts-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>My Hours</h3>
+                    <div class="week-navigation">
+                        <button class="btn btn-secondary" onclick="changeWeek(-1)">&larr; Previous Week</button>
+                        <span class="week-label" id="week-label">This Week</span>
+                        <button class="btn btn-secondary" onclick="changeWeek(1)">Next Week &rarr;</button>
+                    </div>
+                    <div class="week-summary" id="week-summary">
+                        <div class="week-total">
+                            <span class="week-total-label">Total Hours This Week</span>
+                            <span class="week-total-value" id="week-total-hours">0.0</span>
+                        </div>
+                    </div>
+                    <div id="myshifts-list">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            Loading shifts...
+                        </div>
                     </div>
                 </div>
             </div>

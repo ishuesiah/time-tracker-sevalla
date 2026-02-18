@@ -4,6 +4,7 @@
 let currentView = 'dashboard';
 let currentData = [];
 let clockInterval = null;
+let currentWeekOffset = 0;
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
@@ -54,6 +55,8 @@ function showView(view) {
         loadTimetrackData();
     } else if (view === 'audit') {
         loadAuditLogs();
+    } else if (view === 'myshifts') {
+        loadMyShifts();
     }
 }
 
@@ -409,4 +412,115 @@ function deleteAuditLog(id) {
         console.error('Error deleting audit log:', error);
         alert('Error deleting audit log');
     });
+}
+
+// My Hours / Shifts
+function getWeekDates(offset) {
+    var today = new Date();
+    var dayOfWeek = today.getDay();
+    var startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - dayOfWeek + (offset * 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    var endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    return {
+        start: startOfWeek,
+        end: endOfWeek
+    };
+}
+
+function formatDateRange(start, end) {
+    var options = { month: 'short', day: 'numeric' };
+    var startStr = start.toLocaleDateString('en-US', options);
+    var endStr = end.toLocaleDateString('en-US', options);
+    var year = end.getFullYear();
+    return startStr + ' - ' + endStr + ', ' + year;
+}
+
+function changeWeek(delta) {
+    currentWeekOffset += delta;
+    loadMyShifts();
+}
+
+function loadMyShifts() {
+    var container = document.getElementById('myshifts-list');
+    var weekLabel = document.getElementById('week-label');
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading shifts...</div>';
+
+    var dates = getWeekDates(currentWeekOffset);
+    var startStr = dates.start.toISOString().split('T')[0];
+    var endStr = dates.end.toISOString().split('T')[0];
+
+    // Update week label
+    if (weekLabel) {
+        if (currentWeekOffset === 0) {
+            weekLabel.textContent = 'This Week (' + formatDateRange(dates.start, dates.end) + ')';
+        } else if (currentWeekOffset === -1) {
+            weekLabel.textContent = 'Last Week (' + formatDateRange(dates.start, dates.end) + ')';
+        } else {
+            weekLabel.textContent = formatDateRange(dates.start, dates.end);
+        }
+    }
+
+    fetch('/dashboard/myshifts?start=' + startStr + '&end=' + endStr)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            renderMyShifts(data);
+        })
+        .catch(function(error) {
+            console.error('Error loading shifts:', error);
+            container.innerHTML = '<div class="empty-state">Error loading shifts</div>';
+        });
+}
+
+function renderMyShifts(data) {
+    var container = document.getElementById('myshifts-list');
+    var totalEl = document.getElementById('week-total-hours');
+    if (!container) return;
+
+    // Update total hours
+    if (totalEl && data.total_hours !== undefined) {
+        totalEl.textContent = data.total_hours.toFixed(1) + ' hrs';
+    }
+
+    if (!data.shifts || data.shifts.length === 0) {
+        container.innerHTML = '<div class="empty-state">' +
+            '<div class="empty-icon">&#128197;</div>' +
+            '<div>No shifts recorded for this week</div></div>';
+        return;
+    }
+
+    var html = '<div class="shifts-list">';
+
+    for (var i = 0; i < data.shifts.length; i++) {
+        var shift = data.shifts[i];
+        var hoursDisplay = shift.hours ? shift.hours.toFixed(1) + ' hrs' : '-';
+        var statusClass = shift.clock_out ? 'completed' : 'working';
+
+        html += '<div class="shift-card ' + statusClass + '">' +
+            '<div class="shift-date">' +
+            '<div class="shift-day">' + shift.day_name + '</div>' +
+            '<div class="shift-date-num">' + shift.date_display + '</div>' +
+            '</div>' +
+            '<div class="shift-times">' +
+            '<div class="shift-time">' +
+            '<span class="shift-time-label">In</span>' +
+            '<span class="shift-time-value">' + (shift.clock_in || '-') + '</span>' +
+            '</div>' +
+            '<div class="shift-time">' +
+            '<span class="shift-time-label">Out</span>' +
+            '<span class="shift-time-value">' + (shift.clock_out || '-') + '</span>' +
+            '</div>' +
+            '</div>' +
+            '<div class="shift-hours">' + hoursDisplay + '</div>' +
+            '</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
 }
