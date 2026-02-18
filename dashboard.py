@@ -913,7 +913,7 @@ def get_dashboard_html(user):
 
             var html = '<div class="today-header">' +
                 '<div>' +
-                '<div class="today-title">Today\'s Attendance</div>' +
+                '<div class="today-title">Attendance Today</div>' +
                 '<div class="today-date">' + dateStr + '</div>' +
                 '</div>' +
                 '<div class="today-stats">' +
