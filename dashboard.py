@@ -1313,7 +1313,7 @@ def dashboard_details():
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             query = '''
-                SELECT id, employee_name, event_type, timestamp, work_duration_minutes
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
                 FROM clock_events
                 WHERE timestamp BETWEEN %s AND %s
             '''
@@ -1334,10 +1334,16 @@ def dashboard_details():
     # Group events by employee and date
     entries = {}
     for row in results:
-        event_id, employee, event_type, timestamp, duration = row
+        event_id, employee, event_type, timestamp, duration, source = row
 
+        # Handle timezone based on source:
+        # - 'wifi' (warehouse): timestamps stored as naive PST
+        # - 'slack' (remote): timestamps stored as naive UTC
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            if source == 'slack':
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            else:
+                timestamp = timestamp.replace(tzinfo=TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
