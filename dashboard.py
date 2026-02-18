@@ -490,46 +490,169 @@ def get_dashboard_html(user):
         .days-table th {{ background: #f0f7e6; }}
         .day-date {{ font-weight: 500; }}
 
-        /* Today view styles */
-        .today-table {{ font-size: 14px; }}
-        .today-table th {{ background: #e3f2fd; }}
+        /* Today view styles - Modern card layout */
+        .today-container {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 10px 0;
+        }}
+        .employee-card {{
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #f0f0f0;
+        }}
+        .employee-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        }}
+        .employee-card.working {{
+            border-left: 4px solid #4a7c23;
+        }}
+        .employee-card.completed {{
+            border-left: 4px solid #9e9e9e;
+        }}
+        .employee-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }}
+        .employee-name {{
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }}
         .status-badge {{
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
         }}
-        .status-working {{
-            background: #c8e6c9;
+        .status-badge.working {{
+            background: #e8f5e9;
             color: #2e7d32;
         }}
-        .status-completed {{
-            background: #e0e0e0;
-            color: #616161;
-        }}
-        .today-summary {{
-            display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }}
-        .today-stat {{
+        .status-badge.completed {{
             background: #f5f5f5;
-            padding: 12px 20px;
-            border-radius: 8px;
+            color: #757575;
+        }}
+        .status-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }}
+        .status-badge.completed .status-dot {{
+            animation: none;
+        }}
+        @keyframes pulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.5; }}
+        }}
+        .time-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }}
+        .time-box {{
+            background: #fafafa;
+            border-radius: 10px;
+            padding: 12px;
             text-align: center;
         }}
-        .today-stat .number {{
-            font-size: 24px;
+        .time-box.clock-in {{
+            background: #f1f8e9;
+        }}
+        .time-box.clock-out {{
+            background: #fafafa;
+        }}
+        .time-label {{
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }}
+        .time-value {{
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }}
+        .time-box.clock-in .time-value {{
+            color: #2e7d32;
+        }}
+        .hours-worked {{
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .hours-label {{
+            font-size: 13px;
+            color: #888;
+        }}
+        .hours-value {{
+            font-size: 18px;
             font-weight: 600;
             color: #4a7c23;
         }}
-        .today-stat .label {{
-            font-size: 12px;
-            color: #666;
+        .today-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
         }}
-        .today-stat.working .number {{ color: #2e7d32; }}
+        .today-title {{
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }}
+        .today-date {{
+            font-size: 14px;
+            color: #888;
+        }}
+        .today-stats {{
+            display: flex;
+            gap: 24px;
+        }}
+        .stat-item {{
+            text-align: center;
+        }}
+        .stat-number {{
+            font-size: 28px;
+            font-weight: 700;
+            color: #4a7c23;
+        }}
+        .stat-number.working-count {{
+            color: #2e7d32;
+        }}
+        .stat-label {{
+            font-size: 12px;
+            color: #888;
+            margin-top: 2px;
+        }}
+        .no-entries {{
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }}
+        .no-entries-icon {{
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }}
     </style>
 </head>
 <body>
@@ -770,7 +893,11 @@ def get_dashboard_html(user):
 
         function renderToday(data) {{
             if (!data.entries || data.entries.length === 0) {{
-                document.getElementById('todayContainer').innerHTML = '<div class="loading">No one has clocked in today</div>';
+                document.getElementById('todayContainer').innerHTML =
+                    '<div class="no-entries">' +
+                    '<div class="no-entries-icon">&#128197;</div>' +
+                    '<div>No one has clocked in today</div>' +
+                    '</div>';
                 return;
             }}
 
@@ -781,30 +908,55 @@ def get_dashboard_html(user):
                 else completedCount++;
             }}
 
-            var html = '<div class="today-summary">' +
-                '<div class="today-stat working"><div class="number">' + workingCount + '</div><div class="label">Currently Working</div></div>' +
-                '<div class="today-stat"><div class="number">' + completedCount + '</div><div class="label">Completed Shift</div></div>' +
-                '<div class="today-stat"><div class="number">' + data.entries.length + '</div><div class="label">Total Today</div></div>' +
+            var today = new Date();
+            var dateStr = today.toLocaleDateString('en-US', {{ weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }});
+
+            var html = '<div class="today-header">' +
+                '<div>' +
+                '<div class="today-title">Today\'s Attendance</div>' +
+                '<div class="today-date">' + dateStr + '</div>' +
                 '</div>' +
-                '<table class="today-table"><thead><tr>' +
-                '<th>Employee</th><th>Status</th><th>Clock In</th><th>Clock Out</th><th>Hours</th>' +
-                '</tr></thead><tbody>';
+                '<div class="today-stats">' +
+                '<div class="stat-item"><div class="stat-number working-count">' + workingCount + '</div><div class="stat-label">Working</div></div>' +
+                '<div class="stat-item"><div class="stat-number">' + completedCount + '</div><div class="stat-label">Completed</div></div>' +
+                '<div class="stat-item"><div class="stat-number">' + data.entries.length + '</div><div class="stat-label">Total</div></div>' +
+                '</div>' +
+                '</div>';
+
+            html += '<div class="today-container">';
 
             for (var j = 0; j < data.entries.length; j++) {{
                 var entry = data.entries[j];
-                var statusClass = entry.status === 'working' ? 'status-working' : 'status-completed';
-                var statusText = entry.status === 'working' ? 'Working' : 'Completed';
-                var hours = entry.hours ? entry.hours.toFixed(1) : '-';
-                html += '<tr>' +
-                    '<td class="employee-name">' + entry.employee + '</td>' +
-                    '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>' +
-                    '<td>' + (entry.clock_in || '-') + '</td>' +
-                    '<td>' + (entry.clock_out || '-') + '</td>' +
-                    '<td>' + hours + ' hrs</td>' +
-                    '</tr>';
+                var isWorking = entry.status === 'working';
+                var statusClass = isWorking ? 'working' : 'completed';
+                var statusText = isWorking ? 'Working' : 'Completed';
+                var hours = entry.hours ? entry.hours.toFixed(1) + ' hrs' : '-';
+
+                html += '<div class="employee-card ' + statusClass + '">' +
+                    '<div class="employee-header">' +
+                    '<div class="employee-name">' + entry.employee + '</div>' +
+                    '<div class="status-badge ' + statusClass + '">' +
+                    '<span class="status-dot"></span>' + statusText +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="time-grid">' +
+                    '<div class="time-box clock-in">' +
+                    '<div class="time-label">Clock In</div>' +
+                    '<div class="time-value">' + (entry.clock_in || '-') + '</div>' +
+                    '</div>' +
+                    '<div class="time-box clock-out">' +
+                    '<div class="time-label">Clock Out</div>' +
+                    '<div class="time-value">' + (entry.clock_out || '-') + '</div>' +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="hours-worked">' +
+                    '<span class="hours-label">Hours Worked</span>' +
+                    '<span class="hours-value">' + hours + '</span>' +
+                    '</div>' +
+                    '</div>';
             }}
 
-            html += '</tbody></table>';
+            html += '</div>';
             document.getElementById('todayContainer').innerHTML = html;
         }}
 
