@@ -52,6 +52,8 @@ function showView(view) {
     // Load view-specific data
     if (view === 'timetrack') {
         loadTimetrackData();
+    } else if (view === 'audit') {
+        loadAuditLogs();
     }
 }
 
@@ -307,4 +309,104 @@ function downloadCSV() {
     var startDate = document.getElementById('startDate').value;
     var endDate = document.getElementById('endDate').value;
     window.location.href = '/dashboard/download?start=' + startDate + '&end=' + endDate;
+}
+
+// Audit Logs
+function loadAuditLogs() {
+    var container = document.getElementById('audit-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading audit logs...</div>';
+
+    fetch('/dashboard/audit?limit=100')
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            renderAuditLogs(data.logs);
+        })
+        .catch(function(error) {
+            console.error('Error loading audit logs:', error);
+            container.innerHTML = '<div class="empty-state">Error loading audit logs</div>';
+        });
+}
+
+function renderAuditLogs(logs) {
+    var container = document.getElementById('audit-container');
+    if (!container) return;
+
+    if (!logs || logs.length === 0) {
+        container.innerHTML = '<div class="empty-state">' +
+            '<div class="empty-icon">&#128203;</div>' +
+            '<div>No audit logs recorded yet</div></div>';
+        return;
+    }
+
+    var html = '<div class="audit-table-wrapper">' +
+        '<table class="data-table audit-table"><thead><tr>' +
+        '<th>Date/Time</th>' +
+        '<th>Employee</th>' +
+        '<th>Action</th>' +
+        '<th>Change</th>' +
+        '<th>Details</th>' +
+        '<th></th>' +
+        '</tr></thead><tbody>';
+
+    for (var i = 0; i < logs.length; i++) {
+        var log = logs[i];
+        var actionLabel = formatActionLabel(log.action);
+        var actionClass = 'action-' + log.action;
+        var changeHtml = '-';
+
+        if (log.old_value && log.new_value) {
+            changeHtml = '<span class="old-value">' + log.old_value + '</span>' +
+                '<span class="change-arrow">&rarr;</span>' +
+                '<span class="new-value">' + log.new_value + '</span>';
+        } else if (log.new_value) {
+            changeHtml = '<span class="new-value">' + log.new_value + '</span>';
+        }
+
+        html += '<tr>' +
+            '<td class="audit-timestamp">' + log.timestamp + '</td>' +
+            '<td class="audit-employee">' + log.employee_name + '</td>' +
+            '<td><span class="action-badge ' + actionClass + '">' + actionLabel + '</span></td>' +
+            '<td class="audit-change">' + changeHtml + '</td>' +
+            '<td class="audit-details">' + (log.details || '-') + '</td>' +
+            '<td><button class="btn-delete" onclick="deleteAuditLog(' + log.id + ')">Delete</button></td>' +
+            '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function formatActionLabel(action) {
+    var labels = {
+        'adjust_clock_in': 'Adjusted In',
+        'adjust_clock_out': 'Adjusted Out',
+        'late_clock_out': 'Late Out',
+        'dashboard_adjust': 'Dashboard Edit',
+        'manual_entry': 'Manual Entry'
+    };
+    return labels[action] || action;
+}
+
+function deleteAuditLog(id) {
+    if (!confirm('Are you sure you want to delete this audit log entry?')) {
+        return;
+    }
+
+    fetch('/dashboard/audit/' + id, {
+        method: 'DELETE'
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.status === 'ok') {
+            loadAuditLogs();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to delete'));
+        }
+    })
+    .catch(function(error) {
+        console.error('Error deleting audit log:', error);
+        alert('Error deleting audit log');
+    });
 }

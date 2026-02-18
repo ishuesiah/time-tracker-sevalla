@@ -695,6 +695,113 @@ body {
     to { transform: rotate(360deg); }
 }
 
+/* Audit Log Styles */
+.audit-table-wrapper {
+    max-height: 600px;
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+
+.audit-table {
+    font-size: 13px;
+}
+
+.audit-table th {
+    position: sticky;
+    top: 0;
+    background: #fafafa;
+    z-index: 1;
+}
+
+.audit-timestamp {
+    white-space: nowrap;
+    color: #666;
+    font-size: 12px;
+}
+
+.audit-employee {
+    font-weight: 500;
+}
+
+.audit-change {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.audit-details {
+    color: #666;
+    font-size: 12px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.old-value {
+    color: #dc3545;
+    text-decoration: line-through;
+}
+
+.new-value {
+    color: #28a745;
+}
+
+.change-arrow {
+    color: #888;
+    margin: 0 6px;
+}
+
+.action-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.action-adjust_clock_in {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.action-adjust_clock_out {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.action-late_clock_out {
+    background: #fce4ec;
+    color: #c2185b;
+}
+
+.action-dashboard_adjust {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.action-manual_entry {
+    background: #f3e5f5;
+    color: #7b1fa2;
+}
+
+.btn-delete {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-delete:hover {
+    background: #d32f2f;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .sidebar {
