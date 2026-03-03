@@ -388,7 +388,19 @@ function renderAuditLogs(logs) {
 }
 
 function showAuditDetails(details) {
-    alert(details);
+    var modal = document.getElementById('details-modal');
+    var content = document.getElementById('details-content');
+    if (modal && content) {
+        content.textContent = details;
+        modal.style.display = 'flex';
+    }
+}
+
+function closeDetailsModal() {
+    var modal = document.getElementById('details-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
 }
 
 function formatActionLabel(action) {
@@ -843,10 +855,14 @@ function saveTimeEdit() {
     });
 }
 
-// Close modal when clicking outside
+// Close modals when clicking outside
 document.addEventListener('click', function(event) {
-    var modal = document.getElementById('edit-modal');
-    if (event.target === modal) {
+    var editModal = document.getElementById('edit-modal');
+    var detailsModal = document.getElementById('details-modal');
+    if (event.target === editModal) {
         closeEditModal();
+    }
+    if (event.target === detailsModal) {
+        closeDetailsModal();
     }
 });

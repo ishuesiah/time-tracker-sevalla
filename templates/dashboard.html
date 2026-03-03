@@ -252,6 +252,22 @@
         </div>
     </div>
 
+    <!-- Audit Details Modal -->
+    <div id="details-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card modal-card-sm">
+            <div class="modal-header">
+                <h3>Audit Details</h3>
+                <button class="modal-close" onclick="closeDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="details-content" class="details-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeDetailsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
