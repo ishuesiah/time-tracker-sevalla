@@ -1544,7 +1544,7 @@ def dashboard_adjust():
                 # Find existing clock-in
                 cursor.execute('''
                     SELECT id, timestamp FROM clock_events
-                    WHERE employee_name = %s AND event_type = 'clock_in'
+                    WHERE LOWER(employee_name) = LOWER(%s) AND event_type = 'clock_in'
                     AND timestamp BETWEEN %s AND %s
                     ORDER BY timestamp DESC LIMIT 1
                 ''', (employee, day_start, day_end))
@@ -1594,7 +1594,7 @@ def dashboard_adjust():
                 work_minutes = None
                 cursor.execute('''
                     SELECT timestamp FROM clock_events
-                    WHERE employee_name = %s AND event_type = 'clock_in'
+                    WHERE LOWER(employee_name) = LOWER(%s) AND event_type = 'clock_in'
                     AND timestamp BETWEEN %s AND %s
                     ORDER BY timestamp DESC LIMIT 1
                 ''', (employee, day_start, day_end))
@@ -1611,7 +1611,7 @@ def dashboard_adjust():
                 # Find existing clock-out
                 cursor.execute('''
                     SELECT id, timestamp FROM clock_events
-                    WHERE employee_name = %s AND event_type = 'clock_out'
+                    WHERE LOWER(employee_name) = LOWER(%s) AND event_type = 'clock_out'
                     AND timestamp BETWEEN %s AND %s
                     ORDER BY timestamp DESC LIMIT 1
                 ''', (employee, day_start, day_end))
