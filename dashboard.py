@@ -1916,7 +1916,8 @@ def dashboard_myshifts():
 
     return jsonify({
         'shifts': shifts,
-        'total_hours': round(total_hours, 2)
+        'total_hours': round(total_hours, 2),
+        'employee_name': user_employee_name
     })
 
 

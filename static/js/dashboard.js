@@ -483,6 +483,11 @@ function renderMyShifts(data) {
     var totalEl = document.getElementById('week-total-hours');
     if (!container) return;
 
+    // Store employee name for edit modal
+    if (data.employee_name) {
+        window.currentEmployeeName = data.employee_name;
+    }
+
     // Update total hours
     if (totalEl && data.total_hours !== undefined) {
         totalEl.textContent = data.total_hours.toFixed(1) + ' hrs';
@@ -502,6 +507,15 @@ function renderMyShifts(data) {
         var hoursDisplay = shift.hours ? shift.hours.toFixed(1) + ' hrs' : '-';
         var statusClass = shift.clock_out ? 'completed' : 'working';
 
+        // Escape shift data for onclick
+        var shiftData = JSON.stringify({
+            date: shift.date,
+            date_display: shift.date_display,
+            day_name: shift.day_name,
+            clock_in: shift.clock_in,
+            clock_out: shift.clock_out
+        }).replace(/'/g, "\\'");
+
         html += '<div class="shift-card ' + statusClass + '">' +
             '<div class="shift-date">' +
             '<div class="shift-day">' + shift.day_name + '</div>' +
@@ -518,9 +532,140 @@ function renderMyShifts(data) {
             '</div>' +
             '</div>' +
             '<div class="shift-hours">' + hoursDisplay + '</div>' +
+            '<button class="shift-edit-btn" onclick=\'openEditModal(' + shiftData + ')\'>' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>' +
+            '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>' +
+            '</svg>Edit</button>' +
             '</div>';
     }
 
     html += '</div>';
     container.innerHTML = html;
 }
+
+// Edit Time Modal Functions
+function convertTo24Hour(time12h) {
+    if (!time12h || time12h === '-') return '';
+
+    // Handle already 24-hour format
+    if (!time12h.includes('AM') && !time12h.includes('PM')) {
+        return time12h;
+    }
+
+    var match = time12h.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) return '';
+
+    var hours = parseInt(match[1], 10);
+    var minutes = match[2];
+    var period = match[3].toUpperCase();
+
+    if (period === 'PM' && hours !== 12) {
+        hours += 12;
+    } else if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
+    return padZero(hours) + ':' + minutes;
+}
+
+function openEditModal(shift) {
+    var modal = document.getElementById('edit-modal');
+    var dateInput = document.getElementById('edit-date');
+    var dateDisplay = document.getElementById('edit-date-display');
+    var clockInInput = document.getElementById('edit-clock-in');
+    var clockOutInput = document.getElementById('edit-clock-out');
+    var statusEl = document.getElementById('edit-status');
+
+    if (!modal) return;
+
+    // Set values
+    dateInput.value = shift.date;
+    dateDisplay.textContent = shift.day_name + ', ' + shift.date_display;
+    clockInInput.value = convertTo24Hour(shift.clock_in);
+    clockOutInput.value = convertTo24Hour(shift.clock_out);
+
+    // Clear status
+    statusEl.className = 'modal-status';
+    statusEl.textContent = '';
+
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+function closeEditModal() {
+    var modal = document.getElementById('edit-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function saveTimeEdit() {
+    var dateInput = document.getElementById('edit-date');
+    var clockInInput = document.getElementById('edit-clock-in');
+    var clockOutInput = document.getElementById('edit-clock-out');
+    var statusEl = document.getElementById('edit-status');
+
+    var date = dateInput.value;
+    var clockIn = clockInInput.value;
+    var clockOut = clockOutInput.value;
+
+    if (!clockIn && !clockOut) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please enter at least one time';
+        return;
+    }
+
+    // Get employee name from stored value or page
+    var employeeName = window.currentEmployeeName;
+    if (!employeeName) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Could not determine employee name';
+        return;
+    }
+
+    statusEl.className = 'modal-status info';
+    statusEl.textContent = 'Saving...';
+
+    fetch('/dashboard/adjust', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            employee: employeeName,
+            date: date,
+            clock_in: clockIn,
+            clock_out: clockOut
+        })
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.status === 'ok') {
+            statusEl.className = 'modal-status success';
+            statusEl.textContent = 'Saved successfully!';
+
+            // Reload shifts after a brief delay
+            setTimeout(function() {
+                closeEditModal();
+                loadMyShifts();
+            }, 1000);
+        } else {
+            statusEl.className = 'modal-status error';
+            statusEl.textContent = 'Error: ' + (data.error || 'Failed to save');
+        }
+    })
+    .catch(function(error) {
+        console.error('Error saving time edit:', error);
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Error saving changes';
+    });
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', function(event) {
+    var modal = document.getElementById('edit-modal');
+    if (event.target === modal) {
+        closeEditModal();
+    }
+});

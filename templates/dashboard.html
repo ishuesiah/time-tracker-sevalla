@@ -184,6 +184,33 @@
         </main>
     </div>
 
+    <!-- Edit Time Modal -->
+    <div id="edit-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Edit Time Entry</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-date">
+                <div class="modal-date-display" id="edit-date-display"></div>
+                <div class="modal-form-group">
+                    <label for="edit-clock-in">Clock In</label>
+                    <input type="time" id="edit-clock-in">
+                </div>
+                <div class="modal-form-group">
+                    <label for="edit-clock-out">Clock Out</label>
+                    <input type="time" id="edit-clock-out">
+                </div>
+                <div id="edit-status" class="modal-status"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveTimeEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
