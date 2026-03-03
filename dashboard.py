@@ -1348,13 +1348,14 @@ def dashboard_today():
         # Handle timezone based on source:
         # - 'wifi' (warehouse): timestamps stored as naive PST
         # - 'slack' (remote): timestamps stored as naive UTC
+        # - 'dashboard': timestamps stored as UTC (needs conversion)
         if timestamp.tzinfo is None:
-            if source == 'slack':
-                # Remote clock-ins are stored in UTC, convert to PST
-                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
-            else:
+            if source == 'wifi':
                 # Warehouse wifi clock-ins are stored in PST
                 timestamp = timestamp.replace(tzinfo=TIMEZONE)
+            else:
+                # Remote/dashboard clock-ins are stored in UTC, convert to PST
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
@@ -1450,12 +1451,12 @@ def dashboard_details():
 
         # Handle timezone based on source:
         # - 'wifi' (warehouse): timestamps stored as naive PST
-        # - 'slack' (remote): timestamps stored as naive UTC
+        # - 'slack'/'dashboard': timestamps stored as UTC
         if timestamp.tzinfo is None:
-            if source == 'slack':
-                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
-            else:
+            if source == 'wifi':
                 timestamp = timestamp.replace(tzinfo=TIMEZONE)
+            else:
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
@@ -1891,12 +1892,9 @@ def dashboard_myshifts():
     for row in results:
         event_id, employee, event_type, timestamp, duration, source = row
 
-        # Handle timezone based on source
+        # Handle timezone - always convert from UTC to local
         if timestamp.tzinfo is None:
-            if source == 'slack':
-                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
-            else:
-                timestamp = timestamp.replace(tzinfo=TIMEZONE)
+            timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
@@ -2012,10 +2010,10 @@ def dashboard_employee_shifts():
         event_id, employee, event_type, timestamp, duration, source = row
 
         if timestamp.tzinfo is None:
-            if source == 'slack':
-                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
-            else:
+            if source == 'wifi':
                 timestamp = timestamp.replace(tzinfo=TIMEZONE)
+            else:
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
         else:
             timestamp = timestamp.astimezone(TIMEZONE)
 
