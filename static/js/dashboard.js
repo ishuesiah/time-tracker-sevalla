@@ -370,18 +370,25 @@ function renderAuditLogs(logs) {
             changeHtml = '<span class="new-value">' + log.new_value + '</span>';
         }
 
+        var details = log.details || '-';
+        var detailsEscaped = details.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
         html += '<tr>' +
             '<td class="audit-timestamp">' + log.timestamp + '</td>' +
             '<td class="audit-employee">' + log.employee_name + '</td>' +
             '<td><span class="action-badge ' + actionClass + '">' + actionLabel + '</span></td>' +
             '<td class="audit-change">' + changeHtml + '</td>' +
-            '<td class="audit-details">' + (log.details || '-') + '</td>' +
+            '<td class="audit-details" onclick="showAuditDetails(\'' + detailsEscaped + '\')" title="Click to view full details">' + details + '</td>' +
             '<td><button class="btn-delete" onclick="deleteAuditLog(' + log.id + ')">Delete</button></td>' +
             '</tr>';
     }
 
     html += '</tbody></table></div>';
     container.innerHTML = html;
+}
+
+function showAuditDetails(details) {
+    alert(details);
 }
 
 function formatActionLabel(action) {
