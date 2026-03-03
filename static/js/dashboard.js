@@ -5,6 +5,7 @@ let currentView = 'dashboard';
 let currentData = [];
 let clockInterval = null;
 let currentWeekOffset = 0;
+let adminWeekOffset = 0;
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
@@ -57,6 +58,8 @@ function showView(view) {
         loadAuditLogs();
     } else if (view === 'myshifts') {
         loadMyShifts();
+    } else if (view === 'edithours') {
+        loadEmployeesList();
     }
 }
 
@@ -544,6 +547,147 @@ function renderMyShifts(data) {
     container.innerHTML = html;
 }
 
+// Admin Edit Hours Functions
+function loadEmployeesList() {
+    var select = document.getElementById('employeeSelect');
+    if (!select) return;
+
+    fetch('/dashboard/employees')
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.employees) {
+                var html = '<option value="">Select an employee...</option>';
+                for (var i = 0; i < data.employees.length; i++) {
+                    html += '<option value="' + data.employees[i] + '">' + data.employees[i] + '</option>';
+                }
+                select.innerHTML = html;
+            }
+        })
+        .catch(function(error) {
+            console.error('Error loading employees:', error);
+        });
+
+    updateAdminWeekLabel();
+}
+
+function changeAdminWeek(delta) {
+    adminWeekOffset += delta;
+    updateAdminWeekLabel();
+    loadEmployeeShifts();
+}
+
+function updateAdminWeekLabel() {
+    var labelEl = document.getElementById('admin-week-label');
+    if (!labelEl) return;
+
+    var dates = getWeekDates(adminWeekOffset);
+    if (adminWeekOffset === 0) {
+        labelEl.textContent = 'This Week (' + formatDateRange(dates.start, dates.end) + ')';
+    } else if (adminWeekOffset === -1) {
+        labelEl.textContent = 'Last Week (' + formatDateRange(dates.start, dates.end) + ')';
+    } else {
+        labelEl.textContent = formatDateRange(dates.start, dates.end);
+    }
+}
+
+function loadEmployeeShifts() {
+    var select = document.getElementById('employeeSelect');
+    var container = document.getElementById('admin-shifts-list');
+    var summaryEl = document.getElementById('admin-week-summary');
+
+    if (!select || !container) return;
+
+    var employee = select.value;
+    if (!employee) {
+        container.innerHTML = '<div class="empty-state">' +
+            '<div class="empty-icon">&#128100;</div>' +
+            '<div>Select an employee to view and edit their hours</div></div>';
+        if (summaryEl) summaryEl.style.display = 'none';
+        return;
+    }
+
+    container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading shifts...</div>';
+
+    var dates = getWeekDates(adminWeekOffset);
+    var startStr = dates.start.toISOString().split('T')[0];
+    var endStr = dates.end.toISOString().split('T')[0];
+
+    fetch('/dashboard/employee-shifts?employee=' + encodeURIComponent(employee) + '&start=' + startStr + '&end=' + endStr)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            renderAdminShifts(data);
+        })
+        .catch(function(error) {
+            console.error('Error loading employee shifts:', error);
+            container.innerHTML = '<div class="empty-state">Error loading shifts</div>';
+        });
+}
+
+function renderAdminShifts(data) {
+    var container = document.getElementById('admin-shifts-list');
+    var totalEl = document.getElementById('admin-week-total-hours');
+    var summaryEl = document.getElementById('admin-week-summary');
+    if (!container) return;
+
+    // Update total hours
+    if (totalEl && data.total_hours !== undefined) {
+        totalEl.textContent = data.total_hours.toFixed(1) + ' hrs';
+    }
+    if (summaryEl) {
+        summaryEl.style.display = 'block';
+    }
+
+    if (!data.shifts || data.shifts.length === 0) {
+        container.innerHTML = '<div class="empty-state">' +
+            '<div class="empty-icon">&#128197;</div>' +
+            '<div>No shifts recorded for this week</div></div>';
+        return;
+    }
+
+    var html = '<div class="shifts-list">';
+
+    for (var i = 0; i < data.shifts.length; i++) {
+        var shift = data.shifts[i];
+        var hoursDisplay = shift.hours ? shift.hours.toFixed(1) + ' hrs' : '-';
+        var statusClass = shift.clock_out ? 'completed' : 'working';
+
+        var shiftData = JSON.stringify({
+            date: shift.date,
+            date_display: shift.date_display,
+            day_name: shift.day_name,
+            clock_in: shift.clock_in,
+            clock_out: shift.clock_out,
+            employee_name: data.employee_name
+        }).replace(/'/g, "\\'");
+
+        html += '<div class="shift-card ' + statusClass + '">' +
+            '<div class="shift-date">' +
+            '<div class="shift-day">' + shift.day_name + '</div>' +
+            '<div class="shift-date-num">' + shift.date_display + '</div>' +
+            '</div>' +
+            '<div class="shift-times">' +
+            '<div class="shift-time">' +
+            '<span class="shift-time-label">In</span>' +
+            '<span class="shift-time-value">' + (shift.clock_in || '-') + '</span>' +
+            '</div>' +
+            '<div class="shift-time">' +
+            '<span class="shift-time-label">Out</span>' +
+            '<span class="shift-time-value">' + (shift.clock_out || '-') + '</span>' +
+            '</div>' +
+            '</div>' +
+            '<div class="shift-hours">' + hoursDisplay + '</div>' +
+            '<button class="shift-edit-btn" onclick=\'openEditModal(' + shiftData + ')\'>' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>' +
+            '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>' +
+            '</svg>Edit</button>' +
+            '</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 // Edit Time Modal Functions
 function convertTo24Hour(time12h) {
     if (!time12h || time12h === '-') return '';
@@ -572,6 +716,8 @@ function convertTo24Hour(time12h) {
 function openEditModal(shift) {
     var modal = document.getElementById('edit-modal');
     var dateInput = document.getElementById('edit-date');
+    var employeeInput = document.getElementById('edit-employee');
+    var employeeDisplay = document.getElementById('edit-employee-display');
     var dateDisplay = document.getElementById('edit-date-display');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
@@ -586,6 +732,16 @@ function openEditModal(shift) {
     clockInInput.value = convertTo24Hour(shift.clock_in);
     clockOutInput.value = convertTo24Hour(shift.clock_out);
     reasonInput.value = '';
+
+    // Handle employee name for admin edits
+    if (shift.employee_name) {
+        employeeInput.value = shift.employee_name;
+        employeeDisplay.textContent = 'Editing: ' + shift.employee_name;
+        employeeDisplay.style.display = 'block';
+    } else {
+        employeeInput.value = '';
+        employeeDisplay.style.display = 'none';
+    }
 
     // Clear status
     statusEl.className = 'modal-status';
@@ -604,6 +760,7 @@ function closeEditModal() {
 
 function saveTimeEdit() {
     var dateInput = document.getElementById('edit-date');
+    var employeeInput = document.getElementById('edit-employee');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
     var reasonInput = document.getElementById('edit-reason');
@@ -626,8 +783,10 @@ function saveTimeEdit() {
         return;
     }
 
-    // Get employee name from stored value or page
-    var employeeName = window.currentEmployeeName;
+    // Get employee name - from hidden field (admin edit) or stored value (own edit)
+    var employeeName = employeeInput.value || window.currentEmployeeName;
+    var isAdminEdit = !!employeeInput.value;
+
     if (!employeeName) {
         statusEl.className = 'modal-status error';
         statusEl.textContent = 'Could not determine employee name';
@@ -656,10 +815,14 @@ function saveTimeEdit() {
             statusEl.className = 'modal-status success';
             statusEl.textContent = 'Saved successfully!';
 
-            // Reload shifts after a brief delay
+            // Reload appropriate view after a brief delay
             setTimeout(function() {
                 closeEditModal();
-                loadMyShifts();
+                if (isAdminEdit) {
+                    loadEmployeeShifts();
+                } else {
+                    loadMyShifts();
+                }
             }, 1000);
         } else {
             statusEl.className = 'modal-status error';

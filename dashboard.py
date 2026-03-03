@@ -184,6 +184,13 @@ def get_dashboard_html(user):
                 </svg>
                 <span>Time Reports</span>
             </a>
+            <a href="#" class="nav-item" data-view="edithours">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                <span>Edit Hours</span>
+            </a>
             <a href="#" class="nav-item" data-view="audit">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -1921,6 +1928,123 @@ def dashboard_myshifts():
         'shifts': shifts,
         'total_hours': round(total_hours, 2),
         'employee_name': user_employee_name
+    })
+
+
+@dashboard_bp.route('/dashboard/employees')
+def dashboard_employees():
+    """API endpoint to get list of employees (admin only)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    if not is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT DISTINCT employee_name FROM clock_events
+                ORDER BY employee_name
+            ''')
+            results = cursor.fetchall()
+
+    employees = [row[0] for row in results]
+    return jsonify({'employees': employees})
+
+
+@dashboard_bp.route('/dashboard/employee-shifts')
+def dashboard_employee_shifts():
+    """API endpoint for admin to get any employee's shifts."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    if not is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    employee_name = request.args.get('employee', '').strip()
+    if not employee_name:
+        return jsonify({'error': 'Employee name required'}), 400
+
+    start_str = request.args.get('start', '')
+    end_str = request.args.get('end', '')
+    today = now_local().date()
+
+    if start_str and end_str:
+        try:
+            start_date = datetime.combine(
+                datetime.strptime(start_str, '%Y-%m-%d').date(),
+                datetime.min.time()
+            )
+            end_date = datetime.combine(
+                datetime.strptime(end_str, '%Y-%m-%d').date(),
+                datetime.max.time()
+            )
+        except ValueError:
+            day_of_week = today.weekday()
+            start_of_week = today - timedelta(days=day_of_week + 1)
+            end_of_week = start_of_week + timedelta(days=6)
+            start_date = datetime.combine(start_of_week, datetime.min.time())
+            end_date = datetime.combine(end_of_week, datetime.max.time())
+    else:
+        day_of_week = today.weekday()
+        start_of_week = today - timedelta(days=day_of_week + 1)
+        end_of_week = start_of_week + timedelta(days=6)
+        start_date = datetime.combine(start_of_week, datetime.min.time())
+        end_date = datetime.combine(end_of_week, datetime.max.time())
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
+                FROM clock_events
+                WHERE LOWER(employee_name) = LOWER(%s)
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp
+            ''', (employee_name, start_date, end_date))
+            results = cursor.fetchall()
+
+    days = {}
+    total_hours = 0
+
+    for row in results:
+        event_id, employee, event_type, timestamp, duration, source = row
+
+        if timestamp.tzinfo is None:
+            if source == 'slack':
+                timestamp = timestamp.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+            else:
+                timestamp = timestamp.replace(tzinfo=TIMEZONE)
+        else:
+            timestamp = timestamp.astimezone(TIMEZONE)
+
+        date_key = timestamp.strftime('%Y-%m-%d')
+
+        if date_key not in days:
+            days[date_key] = {
+                'date': date_key,
+                'date_display': timestamp.strftime('%b %d'),
+                'day_name': timestamp.strftime('%A'),
+                'clock_in': None,
+                'clock_out': None,
+                'hours': None
+            }
+
+        if event_type == 'clock_in':
+            days[date_key]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+        elif event_type == 'clock_out':
+            days[date_key]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            if duration:
+                days[date_key]['hours'] = duration / 60
+                total_hours += duration / 60
+
+    shifts = sorted(days.values(), key=lambda x: x['date'], reverse=True)
+
+    return jsonify({
+        'shifts': shifts,
+        'total_hours': round(total_hours, 2),
+        'employee_name': employee_name
     })
 
 

@@ -160,6 +160,41 @@
                 </div>
             </div>
 
+            <!-- Edit Hours View (Admin) -->
+            <div id="edithours-view" class="view-section" style="display:none;">
+                <div class="admin-section">
+                    <h3>Edit Employee Hours</h3>
+                    <div class="filters-bar">
+                        <div class="filter-group">
+                            <label>Employee:</label>
+                            <select id="employeeSelect" onchange="loadEmployeeShifts()">
+                                <option value="">Select an employee...</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Week:</label>
+                            <div class="week-nav-inline">
+                                <button class="btn btn-secondary btn-sm" onclick="changeAdminWeek(-1)">&larr;</button>
+                                <span id="admin-week-label" class="week-label-inline">This Week</span>
+                                <button class="btn btn-secondary btn-sm" onclick="changeAdminWeek(1)">&rarr;</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="week-summary" id="admin-week-summary" style="display:none;">
+                        <div class="week-total">
+                            <span class="week-total-label">Total Hours This Week</span>
+                            <span class="week-total-value" id="admin-week-total-hours">0.0</span>
+                        </div>
+                    </div>
+                    <div id="admin-shifts-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">&#128100;</div>
+                            <div>Select an employee to view and edit their hours</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Settings View -->
             <div id="settings-view" class="view-section" style="display:none;">
                 <div class="admin-section">
@@ -193,6 +228,8 @@
             </div>
             <div class="modal-body">
                 <input type="hidden" id="edit-date">
+                <input type="hidden" id="edit-employee">
+                <div class="modal-employee-display" id="edit-employee-display" style="display:none;"></div>
                 <div class="modal-date-display" id="edit-date-display"></div>
                 <div class="modal-form-group">
                     <label for="edit-clock-in">Clock In</label>

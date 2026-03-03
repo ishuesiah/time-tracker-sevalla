@@ -1129,3 +1129,42 @@ body {
     width: 14px;
     height: 14px;
 }
+
+/* Admin Edit Hours View */
+.week-nav-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.week-label-inline {
+    min-width: 200px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+#employeeSelect {
+    min-width: 200px;
+    padding: 8px 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    background: #fff;
+}
+
+/* Modal employee display for admin edits */
+.modal-employee-display {
+    font-size: 14px;
+    font-weight: 500;
+    color: #4a7c23;
+    margin-bottom: 10px;
+    padding: 10px 16px;
+    background: #f0f7e6;
+    border-radius: 8px;
+    text-align: center;
+}
