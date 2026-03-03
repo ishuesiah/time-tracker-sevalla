@@ -575,6 +575,7 @@ function openEditModal(shift) {
     var dateDisplay = document.getElementById('edit-date-display');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
+    var reasonInput = document.getElementById('edit-reason');
     var statusEl = document.getElementById('edit-status');
 
     if (!modal) return;
@@ -584,6 +585,7 @@ function openEditModal(shift) {
     dateDisplay.textContent = shift.day_name + ', ' + shift.date_display;
     clockInInput.value = convertTo24Hour(shift.clock_in);
     clockOutInput.value = convertTo24Hour(shift.clock_out);
+    reasonInput.value = '';
 
     // Clear status
     statusEl.className = 'modal-status';
@@ -604,15 +606,23 @@ function saveTimeEdit() {
     var dateInput = document.getElementById('edit-date');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
+    var reasonInput = document.getElementById('edit-reason');
     var statusEl = document.getElementById('edit-status');
 
     var date = dateInput.value;
     var clockIn = clockInInput.value;
     var clockOut = clockOutInput.value;
+    var reason = reasonInput.value.trim();
 
     if (!clockIn && !clockOut) {
         statusEl.className = 'modal-status error';
         statusEl.textContent = 'Please enter at least one time';
+        return;
+    }
+
+    if (!reason) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please provide a reason for this edit';
         return;
     }
 
@@ -636,7 +646,8 @@ function saveTimeEdit() {
             employee: employeeName,
             date: date,
             clock_in: clockIn,
-            clock_out: clockOut
+            clock_out: clockOut,
+            reason: reason
         })
     })
     .then(function(response) { return response.json(); })

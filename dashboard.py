@@ -1501,15 +1501,18 @@ def dashboard_adjust():
     date_str = data.get('date', '').strip()
     clock_in_str = data.get('clock_in', '').strip()
     clock_out_str = data.get('clock_out', '').strip()
+    reason = data.get('reason', '').strip()
 
     if not employee or not date_str:
         return jsonify({'error': 'Employee and date are required'}), 400
 
-    # Non-admins can only adjust their own entries
+    # Non-admins must provide a reason and can only adjust their own entries
     if not is_admin:
         user_employee_name = get_employee_name_from_email(user['email'])
         if user_employee_name.lower() not in employee.lower():
             return jsonify({'error': 'You can only adjust your own time entries'}), 403
+        if not reason:
+            return jsonify({'error': 'A reason is required for editing time entries'}), 400
 
     try:
         entry_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -1551,7 +1554,7 @@ def dashboard_adjust():
                     log_audit(
                         employee_name=employee,
                         action='dashboard_adjust',
-                        details=f"Adjusted clock-in for {date_str}",
+                        details=f"Adjusted clock-in for {date_str}. Reason: {reason}" if reason else f"Adjusted clock-in for {date_str}",
                         old_value=format_time(old_time),
                         new_value=format_time(new_clock_in),
                         adjusted_by=adjusted_by
@@ -1566,7 +1569,7 @@ def dashboard_adjust():
                     log_audit(
                         employee_name=employee,
                         action='dashboard_adjust',
-                        details=f"Added clock-in for {date_str}",
+                        details=f"Added clock-in for {date_str}. Reason: {reason}" if reason else f"Added clock-in for {date_str}",
                         old_value=None,
                         new_value=format_time(new_clock_in),
                         adjusted_by=adjusted_by
@@ -1619,7 +1622,7 @@ def dashboard_adjust():
                     log_audit(
                         employee_name=employee,
                         action='dashboard_adjust',
-                        details=f"Adjusted clock-out for {date_str}",
+                        details=f"Adjusted clock-out for {date_str}. Reason: {reason}" if reason else f"Adjusted clock-out for {date_str}",
                         old_value=format_time(old_time),
                         new_value=format_time(new_clock_out),
                         adjusted_by=adjusted_by
@@ -1634,7 +1637,7 @@ def dashboard_adjust():
                     log_audit(
                         employee_name=employee,
                         action='dashboard_adjust',
-                        details=f"Added clock-out for {date_str}",
+                        details=f"Added clock-out for {date_str}. Reason: {reason}" if reason else f"Added clock-out for {date_str}",
                         old_value=None,
                         new_value=format_time(new_clock_out),
                         adjusted_by=adjusted_by
