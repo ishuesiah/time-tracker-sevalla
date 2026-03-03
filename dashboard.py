@@ -1556,8 +1556,8 @@ def dashboard_adjust():
                     if old_time.tzinfo is None:
                         old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
 
-                    cursor.execute('UPDATE clock_events SET timestamp = %s WHERE id = %s',
-                                   (new_clock_in, existing[0]))
+                    cursor.execute('UPDATE clock_events SET timestamp = %s, source = %s WHERE id = %s',
+                                   (new_clock_in, 'dashboard', existing[0]))
 
                     log_audit(
                         employee_name=employee,
@@ -1594,7 +1594,7 @@ def dashboard_adjust():
                 # Calculate work duration if we have clock-in
                 work_minutes = None
                 cursor.execute('''
-                    SELECT timestamp FROM clock_events
+                    SELECT timestamp, source FROM clock_events
                     WHERE LOWER(employee_name) = LOWER(%s) AND event_type = 'clock_in'
                     AND timestamp BETWEEN %s AND %s
                     ORDER BY timestamp DESC LIMIT 1
@@ -1603,8 +1603,14 @@ def dashboard_adjust():
 
                 if clock_in_result:
                     clock_in_ts = clock_in_result[0]
+                    clock_in_source = clock_in_result[1]
                     if clock_in_ts.tzinfo is None:
-                        clock_in_ts = clock_in_ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+                        if clock_in_source == 'wifi':
+                            clock_in_ts = clock_in_ts.replace(tzinfo=TIMEZONE)
+                        else:
+                            clock_in_ts = clock_in_ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
+                    else:
+                        clock_in_ts = clock_in_ts.astimezone(TIMEZONE)
                     work_minutes = int((new_clock_out - clock_in_ts).total_seconds() / 60)
                     if work_minutes < 0:
                         return jsonify({'error': 'Clock-out cannot be before clock-in'}), 400
@@ -1624,8 +1630,8 @@ def dashboard_adjust():
                         old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
 
                     cursor.execute('''
-                        UPDATE clock_events SET timestamp = %s, work_duration_minutes = %s WHERE id = %s
-                    ''', (new_clock_out, work_minutes, existing[0]))
+                        UPDATE clock_events SET timestamp = %s, work_duration_minutes = %s, source = %s WHERE id = %s
+                    ''', (new_clock_out, work_minutes, 'dashboard', existing[0]))
 
                     log_audit(
                         employee_name=employee,
