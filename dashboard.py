@@ -1310,9 +1310,9 @@ def dashboard_today():
     is_admin = is_admin_user(user)
     # Get today's date in local timezone
     today = now_local().date()
-    # Database stores timestamps as naive local time (PST), so use naive boundaries
-    day_start = datetime.combine(today, datetime.min.time())
-    day_end = datetime.combine(today, datetime.max.time())
+    # Use timezone-aware boundaries so PostgreSQL compares correctly with timestamptz
+    day_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=TIMEZONE)
+    day_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=TIMEZONE)
 
     # For non-admins, filter to their own data
     user_employee_name = None
