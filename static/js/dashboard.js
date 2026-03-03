@@ -709,6 +709,138 @@ function renderAdminShifts(data) {
     container.innerHTML = html;
 }
 
+// Add Entry Modal Functions (Admin)
+function openAddEntryModal() {
+    var modal = document.getElementById('add-entry-modal');
+    var employeeSelect = document.getElementById('add-employee');
+    var dateInput = document.getElementById('add-date');
+    var clockInInput = document.getElementById('add-clock-in');
+    var clockOutInput = document.getElementById('add-clock-out');
+    var reasonInput = document.getElementById('add-reason');
+    var statusEl = document.getElementById('add-entry-status');
+
+    if (!modal) return;
+
+    // Populate employee dropdown
+    fetch('/dashboard/employees')
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.employees) {
+                var html = '<option value="">Select an employee...</option>';
+                for (var i = 0; i < data.employees.length; i++) {
+                    html += '<option value="' + data.employees[i] + '">' + data.employees[i] + '</option>';
+                }
+                employeeSelect.innerHTML = html;
+
+                // Pre-select current employee if one is selected in the main dropdown
+                var currentEmployee = document.getElementById('employeeSelect');
+                if (currentEmployee && currentEmployee.value) {
+                    employeeSelect.value = currentEmployee.value;
+                }
+            }
+        });
+
+    // Set default date to today
+    var today = new Date().toISOString().split('T')[0];
+    dateInput.value = today;
+
+    // Clear other fields
+    clockInInput.value = '';
+    clockOutInput.value = '';
+    reasonInput.value = '';
+    statusEl.className = 'modal-status';
+    statusEl.textContent = '';
+
+    modal.style.display = 'flex';
+}
+
+function closeAddEntryModal() {
+    var modal = document.getElementById('add-entry-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function saveNewEntry() {
+    var employeeSelect = document.getElementById('add-employee');
+    var dateInput = document.getElementById('add-date');
+    var clockInInput = document.getElementById('add-clock-in');
+    var clockOutInput = document.getElementById('add-clock-out');
+    var reasonInput = document.getElementById('add-reason');
+    var statusEl = document.getElementById('add-entry-status');
+
+    var employee = employeeSelect.value;
+    var date = dateInput.value;
+    var clockIn = clockInInput.value;
+    var clockOut = clockOutInput.value;
+    var reason = reasonInput.value.trim();
+
+    if (!employee) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please select an employee';
+        return;
+    }
+
+    if (!date) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please select a date';
+        return;
+    }
+
+    if (!clockIn && !clockOut) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please enter at least one time';
+        return;
+    }
+
+    if (!reason) {
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Please provide a reason';
+        return;
+    }
+
+    statusEl.className = 'modal-status info';
+    statusEl.textContent = 'Saving...';
+
+    fetch('/dashboard/adjust', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            employee: employee,
+            date: date,
+            clock_in: clockIn,
+            clock_out: clockOut,
+            reason: reason
+        })
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.status === 'ok') {
+            statusEl.className = 'modal-status success';
+            statusEl.textContent = 'Entry added successfully!';
+
+            setTimeout(function() {
+                closeAddEntryModal();
+                // Refresh the employee shifts if viewing that employee
+                var currentEmployee = document.getElementById('employeeSelect');
+                if (currentEmployee && currentEmployee.value === employee) {
+                    loadEmployeeShifts();
+                }
+            }, 1000);
+        } else {
+            statusEl.className = 'modal-status error';
+            statusEl.textContent = 'Error: ' + (data.error || 'Failed to add entry');
+        }
+    })
+    .catch(function(error) {
+        console.error('Error adding entry:', error);
+        statusEl.className = 'modal-status error';
+        statusEl.textContent = 'Error adding entry';
+    });
+}
+
 // Edit Time Modal Functions
 function convertTo24Hour(time12h) {
     if (!time12h || time12h === '-') return '';
@@ -861,10 +993,14 @@ function saveTimeEdit() {
 document.addEventListener('click', function(event) {
     var editModal = document.getElementById('edit-modal');
     var detailsModal = document.getElementById('details-modal');
+    var addEntryModal = document.getElementById('add-entry-modal');
     if (event.target === editModal) {
         closeEditModal();
     }
     if (event.target === detailsModal) {
         closeDetailsModal();
+    }
+    if (event.target === addEntryModal) {
+        closeAddEntryModal();
     }
 });

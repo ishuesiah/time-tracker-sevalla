@@ -179,6 +179,7 @@
                                 <button class="btn btn-secondary btn-sm" onclick="changeAdminWeek(1)">&rarr;</button>
                             </div>
                         </div>
+                        <button class="btn btn-primary" onclick="openAddEntryModal()">+ Add Entry</button>
                     </div>
                     <div class="week-summary" id="admin-week-summary" style="display:none;">
                         <div class="week-total">
@@ -248,6 +249,45 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveTimeEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Entry Modal (Admin) -->
+    <div id="add-entry-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Add Time Entry</h3>
+                <button class="modal-close" onclick="closeAddEntryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-form-group">
+                    <label for="add-employee">Employee</label>
+                    <select id="add-employee">
+                        <option value="">Select an employee...</option>
+                    </select>
+                </div>
+                <div class="modal-form-group">
+                    <label for="add-date">Date</label>
+                    <input type="date" id="add-date">
+                </div>
+                <div class="modal-form-group">
+                    <label for="add-clock-in">Clock In</label>
+                    <input type="time" id="add-clock-in">
+                </div>
+                <div class="modal-form-group">
+                    <label for="add-clock-out">Clock Out</label>
+                    <input type="time" id="add-clock-out">
+                </div>
+                <div class="modal-form-group">
+                    <label for="add-reason">Reason <span class="required">*</span></label>
+                    <textarea id="add-reason" placeholder="Reason for adding this entry..." rows="3"></textarea>
+                </div>
+                <div id="add-entry-status" class="modal-status"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAddEntryModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveNewEntry()">Add Entry</button>
             </div>
         </div>
     </div>
