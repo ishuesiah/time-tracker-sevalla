@@ -748,6 +748,10 @@ body {
     color: #28a745;
 }
 
+.no-value {
+    color: #999;
+}
+
 .change-arrow {
     color: #888;
     margin: 0 6px;

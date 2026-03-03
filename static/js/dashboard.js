@@ -367,7 +367,9 @@ function renderAuditLogs(logs) {
                 '<span class="change-arrow">&rarr;</span>' +
                 '<span class="new-value">' + log.new_value + '</span>';
         } else if (log.new_value) {
-            changeHtml = '<span class="new-value">' + log.new_value + '</span>';
+            changeHtml = '<span class="no-value">&mdash;</span>' +
+                '<span class="change-arrow">&rarr;</span>' +
+                '<span class="new-value">' + log.new_value + '</span>';
         }
 
         var details = log.details || '-';
