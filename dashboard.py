@@ -1663,6 +1663,88 @@ def dashboard_adjust():
     return jsonify({'status': 'ok', 'message': 'Time entry updated'})
 
 
+@dashboard_bp.route('/dashboard/delete-shift', methods=['POST'])
+def dashboard_delete_shift():
+    """API endpoint to delete a shift (both clock-in and clock-out for a date)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    is_admin = is_admin_user(user)
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    employee = data.get('employee', '').strip()
+    date_str = data.get('date', '').strip()
+    reason = data.get('reason', '').strip()
+
+    if not employee or not date_str:
+        return jsonify({'error': 'Employee and date are required'}), 400
+
+    # Non-admins can only delete their own entries and must provide a reason
+    if not is_admin:
+        user_employee_name = get_employee_name_from_email(user['email'])
+        if user_employee_name.lower() not in employee.lower():
+            return jsonify({'error': 'You can only delete your own time entries'}), 403
+        if not reason:
+            return jsonify({'error': 'A reason is required for deleting time entries'}), 400
+
+    try:
+        entry_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    day_start = datetime.combine(entry_date, datetime.min.time()).replace(tzinfo=TIMEZONE)
+    day_end = datetime.combine(entry_date, datetime.max.time()).replace(tzinfo=TIMEZONE)
+
+    deleted_by = user['email']
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            # Get existing entries for audit log
+            cursor.execute('''
+                SELECT event_type, timestamp FROM clock_events
+                WHERE LOWER(employee_name) = LOWER(%s)
+                AND timestamp BETWEEN %s AND %s
+            ''', (employee, day_start, day_end))
+            existing_entries = cursor.fetchall()
+
+            if not existing_entries:
+                return jsonify({'error': 'No entries found for this date'}), 404
+
+            # Build details for audit log
+            entry_details = []
+            for event_type, timestamp in existing_entries:
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=TIMEZONE)
+                entry_details.append(f"{event_type}: {format_time(timestamp)}")
+
+            # Delete all entries for this employee on this date
+            cursor.execute('''
+                DELETE FROM clock_events
+                WHERE LOWER(employee_name) = LOWER(%s)
+                AND timestamp BETWEEN %s AND %s
+            ''', (employee, day_start, day_end))
+
+            deleted_count = cursor.rowcount
+
+            # Log the deletion
+            log_audit(
+                employee_name=employee,
+                action='delete_shift',
+                details=f"Deleted shift for {date_str}. {', '.join(entry_details)}. Reason: {reason}" if reason else f"Deleted shift for {date_str}. {', '.join(entry_details)}",
+                old_value=', '.join(entry_details),
+                new_value=None,
+                adjusted_by=deleted_by
+            )
+
+            conn.commit()
+
+    return jsonify({'status': 'ok', 'message': f'Deleted {deleted_count} entries'})
+
+
 @dashboard_bp.route('/dashboard/download')
 def dashboard_download():
     """Download CSV of timesheet data."""

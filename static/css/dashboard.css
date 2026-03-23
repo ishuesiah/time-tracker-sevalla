@@ -1242,3 +1242,87 @@ body {
     background: #f3e8ff;
     color: #7c3aed;
 }
+
+/* Shift Actions Container */
+.shift-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Delete Button */
+.shift-delete-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    background: #fff;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    color: #dc2626;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.shift-delete-btn:hover {
+    background: #fef2f2;
+    border-color: #dc2626;
+}
+
+.shift-delete-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Danger Button */
+.btn-danger {
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-danger:hover {
+    background: #b91c1c;
+}
+
+/* Delete Modal Styles */
+.modal-header-danger {
+    background: #fef2f2;
+    border-bottom: 1px solid #fecaca;
+}
+
+.modal-header-danger h3 {
+    color: #dc2626;
+}
+
+.delete-warning {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.delete-warning .warning-icon {
+    width: 48px;
+    height: 48px;
+    color: #dc2626;
+    margin-bottom: 15px;
+}
+
+.delete-warning p {
+    margin: 0;
+    color: #666;
+    font-size: 15px;
+}
+
+.delete-warning .delete-date {
+    font-weight: 600;
+    color: #333;
+    font-size: 16px;
+    margin-top: 8px;
+}
