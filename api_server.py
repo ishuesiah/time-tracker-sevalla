@@ -114,8 +114,22 @@ def init_database():
                     event_type TEXT NOT NULL,
                     timestamp TIMESTAMP NOT NULL,
                     work_duration_minutes INTEGER,
-                    source TEXT DEFAULT 'wifi'
+                    source TEXT DEFAULT 'wifi',
+                    tag TEXT
                 )
+            ''')
+
+            # Add tag column if it doesn't exist (for existing databases)
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'clock_events' AND column_name = 'tag'
+                    ) THEN
+                        ALTER TABLE clock_events ADD COLUMN tag TEXT;
+                    END IF;
+                END $$;
             ''')
 
             cursor.execute('''

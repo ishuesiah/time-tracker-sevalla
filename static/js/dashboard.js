@@ -530,6 +530,7 @@ function renderMyShifts(data) {
         var shift = data.shifts[i];
         var hoursDisplay = shift.hours ? shift.hours.toFixed(1) + ' hrs' : '-';
         var statusClass = shift.clock_out ? 'completed' : 'working';
+        var tagHtml = shift.tag ? '<span class="shift-tag tag-' + shift.tag.toLowerCase().replace(/\s+/g, '-') + '">' + shift.tag + '</span>' : '';
 
         // Escape shift data for onclick
         var shiftData = JSON.stringify({
@@ -537,7 +538,8 @@ function renderMyShifts(data) {
             date_display: shift.date_display,
             day_name: shift.day_name,
             clock_in: shift.clock_in,
-            clock_out: shift.clock_out
+            clock_out: shift.clock_out,
+            tag: shift.tag
         }).replace(/'/g, "\\'");
 
         html += '<div class="shift-card ' + statusClass + '">' +
@@ -555,7 +557,7 @@ function renderMyShifts(data) {
             '<span class="shift-time-value">' + (shift.clock_out || '-') + '</span>' +
             '</div>' +
             '</div>' +
-            '<div class="shift-hours">' + hoursDisplay + '</div>' +
+            '<div class="shift-hours">' + hoursDisplay + tagHtml + '</div>' +
             '<button class="shift-edit-btn" onclick=\'openEditModal(' + shiftData + ')\'>' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
             '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>' +
@@ -671,6 +673,7 @@ function renderAdminShifts(data) {
         var shift = data.shifts[i];
         var hoursDisplay = shift.hours ? shift.hours.toFixed(1) + ' hrs' : '-';
         var statusClass = shift.clock_out ? 'completed' : 'working';
+        var tagHtml = shift.tag ? '<span class="shift-tag tag-' + shift.tag.toLowerCase().replace(/\s+/g, '-') + '">' + shift.tag + '</span>' : '';
 
         var shiftData = JSON.stringify({
             date: shift.date,
@@ -678,6 +681,7 @@ function renderAdminShifts(data) {
             day_name: shift.day_name,
             clock_in: shift.clock_in,
             clock_out: shift.clock_out,
+            tag: shift.tag,
             employee_name: data.employee_name
         }).replace(/'/g, "\\'");
 
@@ -696,7 +700,7 @@ function renderAdminShifts(data) {
             '<span class="shift-time-value">' + (shift.clock_out || '-') + '</span>' +
             '</div>' +
             '</div>' +
-            '<div class="shift-hours">' + hoursDisplay + '</div>' +
+            '<div class="shift-hours">' + hoursDisplay + tagHtml + '</div>' +
             '<button class="shift-edit-btn" onclick=\'openEditModal(' + shiftData + ')\'>' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
             '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>' +
@@ -766,6 +770,7 @@ function saveNewEntry() {
     var dateInput = document.getElementById('add-date');
     var clockInInput = document.getElementById('add-clock-in');
     var clockOutInput = document.getElementById('add-clock-out');
+    var tagSelect = document.getElementById('add-tag');
     var reasonInput = document.getElementById('add-reason');
     var statusEl = document.getElementById('add-entry-status');
 
@@ -773,6 +778,7 @@ function saveNewEntry() {
     var date = dateInput.value;
     var clockIn = clockInInput.value;
     var clockOut = clockOutInput.value;
+    var tag = tagSelect.value;
     var reason = reasonInput.value.trim();
 
     if (!employee) {
@@ -812,6 +818,7 @@ function saveNewEntry() {
             date: date,
             clock_in: clockIn,
             clock_out: clockOut,
+            tag: tag,
             reason: reason
         })
     })
@@ -874,6 +881,7 @@ function openEditModal(shift) {
     var dateDisplay = document.getElementById('edit-date-display');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
+    var tagSelect = document.getElementById('edit-tag');
     var reasonInput = document.getElementById('edit-reason');
     var statusEl = document.getElementById('edit-status');
 
@@ -884,6 +892,7 @@ function openEditModal(shift) {
     dateDisplay.textContent = shift.day_name + ', ' + shift.date_display;
     clockInInput.value = convertTo24Hour(shift.clock_in);
     clockOutInput.value = convertTo24Hour(shift.clock_out);
+    tagSelect.value = shift.tag || '';
     reasonInput.value = '';
 
     // Handle employee name for admin edits
@@ -916,12 +925,14 @@ function saveTimeEdit() {
     var employeeInput = document.getElementById('edit-employee');
     var clockInInput = document.getElementById('edit-clock-in');
     var clockOutInput = document.getElementById('edit-clock-out');
+    var tagSelect = document.getElementById('edit-tag');
     var reasonInput = document.getElementById('edit-reason');
     var statusEl = document.getElementById('edit-status');
 
     var date = dateInput.value;
     var clockIn = clockInInput.value;
     var clockOut = clockOutInput.value;
+    var tag = tagSelect.value;
     var reason = reasonInput.value.trim();
 
     if (!clockIn && !clockOut) {
@@ -959,6 +970,7 @@ function saveTimeEdit() {
             date: date,
             clock_in: clockIn,
             clock_out: clockOut,
+            tag: tag,
             reason: reason
         })
     })

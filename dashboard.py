@@ -1510,6 +1510,7 @@ def dashboard_adjust():
     clock_in_str = data.get('clock_in', '').strip()
     clock_out_str = data.get('clock_out', '').strip()
     reason = data.get('reason', '').strip()
+    tag = data.get('tag', '').strip() or None  # Optional tag for the entry
 
     if not employee or not date_str:
         return jsonify({'error': 'Employee and date are required'}), 400
@@ -1556,8 +1557,8 @@ def dashboard_adjust():
                     if old_time.tzinfo is None:
                         old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
 
-                    cursor.execute('UPDATE clock_events SET timestamp = %s, source = %s WHERE id = %s',
-                                   (new_clock_in, 'dashboard', existing[0]))
+                    cursor.execute('UPDATE clock_events SET timestamp = %s, source = %s, tag = COALESCE(%s, tag) WHERE id = %s',
+                                   (new_clock_in, 'dashboard', tag, existing[0]))
 
                     log_audit(
                         employee_name=employee,
@@ -1570,9 +1571,9 @@ def dashboard_adjust():
                 else:
                     # Create new clock-in
                     cursor.execute('''
-                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, source)
-                        VALUES (%s, %s, %s, %s, %s)
-                    ''', (f'DASHBOARD-{employee}', employee, 'clock_in', new_clock_in, 'dashboard'))
+                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, source, tag)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    ''', (f'DASHBOARD-{employee}', employee, 'clock_in', new_clock_in, 'dashboard', tag))
 
                     log_audit(
                         employee_name=employee,
@@ -1630,8 +1631,8 @@ def dashboard_adjust():
                         old_time = old_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(TIMEZONE)
 
                     cursor.execute('''
-                        UPDATE clock_events SET timestamp = %s, work_duration_minutes = %s, source = %s WHERE id = %s
-                    ''', (new_clock_out, work_minutes, 'dashboard', existing[0]))
+                        UPDATE clock_events SET timestamp = %s, work_duration_minutes = %s, source = %s, tag = COALESCE(%s, tag) WHERE id = %s
+                    ''', (new_clock_out, work_minutes, 'dashboard', tag, existing[0]))
 
                     log_audit(
                         employee_name=employee,
@@ -1644,9 +1645,9 @@ def dashboard_adjust():
                 else:
                     # Create new clock-out
                     cursor.execute('''
-                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, work_duration_minutes, source)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    ''', (f'DASHBOARD-{employee}', employee, 'clock_out', new_clock_out, work_minutes, 'dashboard'))
+                        INSERT INTO clock_events (mac_address, employee_name, event_type, timestamp, work_duration_minutes, source, tag)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ''', (f'DASHBOARD-{employee}', employee, 'clock_out', new_clock_out, work_minutes, 'dashboard', tag))
 
                     log_audit(
                         employee_name=employee,
@@ -1883,7 +1884,7 @@ def dashboard_myshifts():
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute('''
-                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source, tag
                 FROM clock_events
                 WHERE LOWER(employee_name) LIKE LOWER(%s)
                 AND timestamp BETWEEN %s AND %s
@@ -1896,7 +1897,7 @@ def dashboard_myshifts():
     total_hours = 0
 
     for row in results:
-        event_id, employee, event_type, timestamp, duration, source = row
+        event_id, employee, event_type, timestamp, duration, source, tag = row
 
         # Handle timezone - always convert from UTC to local
         if timestamp.tzinfo is None:
@@ -1914,16 +1915,21 @@ def dashboard_myshifts():
                 'day_name': timestamp.strftime('%A'),
                 'clock_in': None,
                 'clock_out': None,
-                'hours': None
+                'hours': None,
+                'tag': None
             }
 
         if event_type == 'clock_in':
             days[date_key]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            if tag:
+                days[date_key]['tag'] = tag
         elif event_type == 'clock_out':
             days[date_key]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
             if duration:
                 days[date_key]['hours'] = duration / 60
                 total_hours += duration / 60
+            if tag:
+                days[date_key]['tag'] = tag
 
     # Sort by date descending (most recent first)
     shifts = sorted(days.values(), key=lambda x: x['date'], reverse=True)
@@ -2001,7 +2007,7 @@ def dashboard_employee_shifts():
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute('''
-                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source
+                SELECT id, employee_name, event_type, timestamp, work_duration_minutes, source, tag
                 FROM clock_events
                 WHERE LOWER(employee_name) = LOWER(%s)
                 AND timestamp BETWEEN %s AND %s
@@ -2013,7 +2019,7 @@ def dashboard_employee_shifts():
     total_hours = 0
 
     for row in results:
-        event_id, employee, event_type, timestamp, duration, source = row
+        event_id, employee, event_type, timestamp, duration, source, tag = row
 
         if timestamp.tzinfo is None:
             if source == 'wifi':
@@ -2032,16 +2038,21 @@ def dashboard_employee_shifts():
                 'day_name': timestamp.strftime('%A'),
                 'clock_in': None,
                 'clock_out': None,
-                'hours': None
+                'hours': None,
+                'tag': None
             }
 
         if event_type == 'clock_in':
             days[date_key]['clock_in'] = timestamp.strftime('%I:%M %p').lstrip('0')
+            if tag:
+                days[date_key]['tag'] = tag
         elif event_type == 'clock_out':
             days[date_key]['clock_out'] = timestamp.strftime('%I:%M %p').lstrip('0')
             if duration:
                 days[date_key]['hours'] = duration / 60
                 total_hours += duration / 60
+            if tag:
+                days[date_key]['tag'] = tag
 
     shifts = sorted(days.values(), key=lambda x: x['date'], reverse=True)
 

@@ -1200,3 +1200,45 @@ body {
     word-wrap: break-word;
     white-space: pre-wrap;
 }
+
+/* Tag Badges */
+.shift-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.tag-sick-day {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.tag-entry-mistake {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.tag-vacation {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
+.tag-work-from-home {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.tag-half-day {
+    background: #e0e7ff;
+    color: #4f46e5;
+}
+
+.tag-meeting {
+    background: #f3e8ff;
+    color: #7c3aed;
+}
